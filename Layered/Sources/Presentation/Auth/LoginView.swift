@@ -7,6 +7,7 @@ struct LoginView: View {
     @State private var appeared = false
     @State private var showAgreement = false
     @State private var pendingAction: PendingLoginAction?
+    @Environment(\.colorScheme) private var colorScheme
 
     private enum PendingLoginAction {
         case apple
@@ -63,10 +64,11 @@ struct LoginView: View {
                         Text("Apple로 로그인")
                             .font(.headline)
                     }
-                    .foregroundStyle(.white)
+                    // Apple HIG: 밝은 배경엔 검정 버튼, 어두운 배경엔 흰 버튼.
+                    .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(.black)
+                    .background(colorScheme == .dark ? Color.white : Color.black)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
 
