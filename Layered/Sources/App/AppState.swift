@@ -495,8 +495,19 @@ final class AppState {
               let userId = currentUser?.id else { throw AppStateError.noFamily }
         isLoading = true
         defer { isLoading = false }
-        let familyId = family.id
 
+        try await performLeaveFamily(userId: userId, family: family, members: members)
+
+        currentFamily = nil
+        members = []
+        meetings = []
+        authState = .familySetup
+    }
+
+    /// leaveFamily의 순수 데이터 작업 파트. UI/state 전환은 포함하지 않음.
+    /// deleteAccount처럼 leaveFamily 도중 화면 전환(.familySetup)이 일어나면 안 되는 호출자를 위해 분리.
+    private func performLeaveFamily(userId: String, family: Family, members: [Member]) async throws {
+        let familyId = family.id
         if members.count <= 1 {
             // 마지막 구성원이 나가면 가정 자체를 삭제
             try await familyRepository.deleteFamily(id: familyId)
@@ -511,7 +522,7 @@ final class AppState {
                     try? await memberRepository.transferAdmin(familyId: familyId, newAdminId: nextAdmin.id)
                 }
             }
-            // 나간 사람의 모임 plannerName·기록 memberName을 "Guest"로 비정규화 필드 업데이트
+            // 나간 사람의 모임 plannerName·기록 memberName을 "Guest"로 바꾸고 투표 이력 제거
             try? await anonymizeUserContent(familyId: familyId, userId: userId)
             try await memberRepository.removeMember(familyId: familyId, memberId: userId)
         }
@@ -521,16 +532,39 @@ final class AppState {
             try? await userRepository.updateUser(updatedUser)
             currentUser = updatedUser
         }
-        currentFamily = nil
-        members = []
-        meetings = []
-        authState = .familySetup
     }
 
-    /// 나간 구성원의 meetings.plannerName / records.memberName을 "Guest"로 치환.
-    /// 데이터(모임·기록) 자체는 보존하되 UI에서 익명 처리되도록 함.
+    /// 나간 구성원의 meetings.plannerName / records.memberName을 "Guest"로 치환하고
+    /// polls 내 본인 투표 기록을 제거. 모임·기록 데이터 자체는 보존.
     private func anonymizeUserContent(familyId: String, userId: String) async throws {
         try await renameUserContent(familyId: familyId, userId: userId, newName: "Guest")
+        try await removePollVotes(familyId: familyId, userId: userId)
+    }
+
+    /// 가정 내 모든 polls를 훑어 options[].voterIds에서 userId 제거 + voteCount 보정.
+    /// 익명 투표(isAnonymous=true)는 voterIds 자체가 없어 건드릴 필요 없음.
+    private func removePollVotes(familyId: String, userId: String) async throws {
+        let db = Firestore.firestore()
+        let meetingsSnap = try await db.collection("families").document(familyId)
+            .collection("meetings").getDocuments()
+        for meetingDoc in meetingsSnap.documents {
+            let pollsSnap = try? await meetingDoc.reference.collection("polls").getDocuments()
+            for pollDoc in pollsSnap?.documents ?? [] {
+                guard var options = pollDoc.data()["options"] as? [[String: Any]] else { continue }
+                var changed = false
+                for i in options.indices {
+                    var voterIds = options[i]["voterIds"] as? [String] ?? []
+                    guard voterIds.contains(userId) else { continue }
+                    voterIds.removeAll { $0 == userId }
+                    options[i]["voterIds"] = voterIds
+                    options[i]["voteCount"] = voterIds.count
+                    changed = true
+                }
+                if changed {
+                    try? await pollDoc.reference.updateData(["options": options])
+                }
+            }
+        }
     }
 
     /// 재참여한 구성원의 과거 모임·기록의 plannerName / memberName을 현재 이름으로 복원.
@@ -644,6 +678,14 @@ final class AppState {
 
     // MARK: - 로그아웃
     func signOut() {
+        // 로그아웃하는 유저의 Firestore fcmToken을 먼저 비움.
+        // 그대로 두면 같은 기기에 다른 계정이 로그인했을 때 이전 유저용 푸시가
+        // 현 기기로 배달될 수 있다. Auth signOut 이후엔 uid를 못 읽으므로 먼저 처리.
+        if let uid = currentUser?.id {
+            Firestore.firestore()
+                .collection("users").document(uid)
+                .updateData(["fcmToken": FieldValue.delete()]) { _ in }
+        }
         try? authRepository.signOut()
         currentUser = nil
         currentFamily = nil
@@ -678,16 +720,20 @@ final class AppState {
     private func cleanupUserDataBeforeAuthDeletion() async throws {
         guard let userId = currentUser?.id else { return }
 
-        // 1. 가족에 속해있으면 먼저 나가기 (관리자 이전·마지막 멤버면 가정 자동 삭제)
-        if currentFamily != nil {
-            try? await leaveFamily()
+        // 1. 가족에 속해있으면 먼저 나가기.
+        //    leaveFamily() 대신 performLeaveFamily를 호출해 화면 전환(.familySetup)이
+        //    deleteAccount 도중에 발화하지 않게 한다. 실패는 그대로 전파 —
+        //    try?로 삼키면 고아 가정이 생긴 뒤 users·Auth만 지워지기 때문.
+        if let family = currentFamily {
+            try await performLeaveFamily(userId: userId, family: family, members: members)
         }
 
-        // 2. Storage 프로필 이미지 삭제
+        // 2. Storage 프로필 이미지 삭제 (없을 수 있으니 실패 허용)
         try? await storageRepository.deleteImage(path: "users/\(userId)/profile.jpg")
 
-        // 3. Firestore users 문서 삭제
-        try? await Firestore.firestore().collection("users").document(userId).delete()
+        // 3. Firestore users 문서 삭제 — 실패하면 Auth 삭제 진행 금지.
+        //    Auth가 사라지면 이 문서에 다시 접근할 보안 규칙 권한도 없어진다.
+        try await Firestore.firestore().collection("users").document(userId).delete()
     }
 
     private func finalizeAccountDeletion() {
