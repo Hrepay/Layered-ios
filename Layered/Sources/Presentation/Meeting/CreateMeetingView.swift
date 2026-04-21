@@ -27,13 +27,14 @@ struct CreateMeetingView: View {
     @Environment(AppState.self) private var appState: AppState
 
     @State private var date = Date()
+    // 단일 장소 모드
     @State private var place = ""
     @State private var placeURL = ""
+    // 후보 모드
+    @State private var useCandidates = false
+    @State private var candidates: [PlaceCandidateDraft] = [PlaceCandidateDraft(), PlaceCandidateDraft()]
     @State private var activity = ""
     @State private var selectedPresets: Set<ActivityPreset> = []
-    @State private var showPollCreation = false
-    @State private var hasPoll = false
-    @State private var createdPoll: Poll?
     @State private var linkMetadata: LPLinkMetadata?
     @State private var isLoadingLink = false
     @State private var showExitAlert = false
@@ -44,12 +45,22 @@ struct CreateMeetingView: View {
         return combined.isEmpty ? nil : combined.joined(separator: ", ")
     }
 
+    private var validCandidateOptions: [PollOption] {
+        PlaceCandidateDraft.toPollOptions(candidates)
+    }
+
     private var hasUnsavedChanges: Bool {
-        !place.isEmpty
-            || !placeURL.isEmpty
-            || !activity.isEmpty
-            || !selectedPresets.isEmpty
-            || hasPoll
+        if useCandidates {
+            return !candidates.allSatisfy { $0.title.isEmpty && $0.link.isEmpty }
+        }
+        return !place.isEmpty || !placeURL.isEmpty || !activity.isEmpty || !selectedPresets.isEmpty
+    }
+
+    private var canSave: Bool {
+        if useCandidates {
+            return validCandidateOptions.count >= 2
+        }
+        return !place.isEmpty
     }
 
     var body: some View {
@@ -66,24 +77,25 @@ struct CreateMeetingView: View {
                 trailingText: "완료",
                 trailingAction: {
                     Haptic.medium()
+                    let (savedPlace, savedPlaceURL, hasPoll, poll) = buildSaveState()
                     let meeting = Meeting(
                         id: UUID().uuidString,
                         plannerId: appState.currentUser?.id ?? "",
                         plannerName: appState.currentUser?.name ?? "",
                         meetingDate: date,
-                        place: place,
+                        place: savedPlace,
                         placeLatitude: nil,
                         placeLongitude: nil,
-                        placeURL: placeURL.isEmpty ? nil : placeURL,
+                        placeURL: savedPlaceURL,
                         activity: finalActivity,
                         status: .planning,
                         hasPoll: hasPoll,
                         createdAt: Date(),
                         updatedAt: Date()
                     )
-                    onCreated(meeting, createdPoll)
+                    onCreated(meeting, poll)
                 },
-                trailingDisabled: place.isEmpty
+                trailingDisabled: !canSave
             )
 
             ScrollView {
@@ -101,43 +113,8 @@ struct CreateMeetingView: View {
                             .labelsHidden()
                     }
 
-                    // 장소
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("장소")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-
-                        AppTextField(placeholder: "장소를 입력해주세요", text: $place)
-                    }
-
-                    // 링크 (선택)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("장소 링크 (선택)")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-
-                        AppTextField(placeholder: "네이버지도, 카카오맵 URL 붙여넣기", text: $placeURL)
-                            .textInputAutocapitalization(.never)
-                            .keyboardType(.URL)
-                            .onChange(of: placeURL) { _, newValue in
-                                handlePlaceURLChange(newValue)
-                            }
-
-                        if isLoadingLink {
-                            HStack {
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                                Text("링크 미리보기 로딩 중...")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding(.vertical, 4)
-                        } else if let metadata = linkMetadata {
-                            LinkPreviewCard(metadata: metadata)
-                        }
-                    }
+                    // 장소 (단일 ↔ 후보 모드)
+                    placeSection
 
                     // 활동 내용
                     VStack(alignment: .leading, spacing: 12) {
@@ -183,58 +160,100 @@ struct CreateMeetingView: View {
                         // 직접 입력
                         AppTextField(placeholder: "직접 입력", text: $activity)
                     }
-
-                    // 투표 추가
-                    if hasPoll {
-                        HStack {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(AppColors.secondary)
-                            Text("투표가 추가되었습니다")
-                                .font(.subheadline)
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Button("삭제") { hasPoll = false }
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                        }
-                        .card()
-                    } else {
-                        Button(action: { showPollCreation = true }) {
-                            HStack {
-                                Image(systemName: "chart.bar.fill")
-                                    .foregroundStyle(AppColors.info)
-                                Text("투표 추가")
-                                    .foregroundStyle(.primary)
-                            }
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(AppColors.infoSubtle)
-                            .clipShape(RoundedRectangle(cornerRadius: 20))
-                        }
-                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
                 .padding(.bottom, 24)
             }
         }
-        .fullScreenCover(isPresented: $showPollCreation) {
-            CreatePollView(onBack: {
-                showPollCreation = false
-            }, onCreated: { poll in
-                createdPoll = poll
-                hasPoll = true
-                showPollCreation = false
-            })
-            .environment(appState)
-        }
         .alert("저장되지 않아요", isPresented: $showExitAlert) {
             Button("취소", role: .cancel) {}
             Button("나가기", role: .destructive) { onBack() }
         } message: {
             Text("지금 나가면 입력한 내용이 저장되지 않습니다.")
+        }
+    }
+
+    // MARK: - 장소 섹션
+
+    @ViewBuilder
+    private var placeSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("장소")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+
+            // 모드 토글
+            Toggle(isOn: $useCandidates.animation(.easeInOut(duration: 0.2))) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("여러 후보 올리고 가족 의견 받기")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.primary)
+                    Text("2~4개 후보를 올려 투표로 정해요")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .tint(AppColors.primary)
+            .padding(14)
+            .background(Color(.secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+
+            if useCandidates {
+                PlaceCandidatesEditor(candidates: $candidates)
+            } else {
+                AppTextField(placeholder: "장소를 입력해주세요", text: $place)
+
+                Text("장소 링크 (선택)")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 4)
+
+                AppTextField(placeholder: "네이버지도, 카카오맵 URL 붙여넣기", text: $placeURL)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.URL)
+                    .onChange(of: placeURL) { _, newValue in
+                        handlePlaceURLChange(newValue)
+                    }
+
+                if isLoadingLink {
+                    HStack {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("링크 미리보기 로딩 중...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                } else if let metadata = linkMetadata {
+                    LinkPreviewCard(metadata: metadata)
+                }
+            }
+        }
+    }
+
+    // MARK: - Save build
+
+    private func buildSaveState() -> (place: String, placeURL: String?, hasPoll: Bool, poll: Poll?) {
+        if useCandidates {
+            let options = validCandidateOptions
+            let poll = Poll(
+                id: UUID().uuidString,
+                question: "어디로 갈까요?",
+                isAnonymous: false,
+                allowMultiple: true,
+                options: options,
+                createdAt: Date()
+            )
+            return ("", nil, true, poll)
+        } else {
+            return (place, placeURL.isEmpty ? nil : placeURL, false, nil)
         }
     }
 
@@ -245,7 +264,7 @@ struct CreateMeetingView: View {
         if let extracted = URLExtractor.firstURL(in: newValue),
            extracted.absoluteString != newValue {
             placeURL = extracted.absoluteString
-            return // onChange가 다시 호출되면서 fetchLinkPreview 진행
+            return
         }
         fetchLinkPreview(newValue)
     }

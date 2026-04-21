@@ -22,3 +22,11 @@ struct Meeting: Identifiable, Codable, Hashable {
         case cancelled
     }
 }
+
+extension Meeting {
+    /// UI 표시용 장소명. 투표 모드(후보 단계)면 placeholder로 대체.
+    var displayPlace: String {
+        if hasPoll && place.isEmpty { return "장소 투표 중" }
+        return place
+    }
+}
