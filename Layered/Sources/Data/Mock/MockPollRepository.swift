@@ -17,5 +17,9 @@ final class MockPollRepository: PollRepositoryProtocol {
 
     func removeVote(familyId: String, meetingId: String, pollId: String, optionId: String, userId: String) async throws {}
 
+    func addOption(familyId: String, meetingId: String, pollId: String, option: PollOption) async throws {}
+
+    func updatePollOptions(familyId: String, meetingId: String, pollId: String, options: [PollOption]) async throws {}
+
     func deletePoll(familyId: String, meetingId: String, pollId: String) async throws {}
 }

@@ -122,6 +122,67 @@ final class FirebasePollRepository: PollRepositoryProtocol {
         }
     }
 
+    func addOption(familyId: String, meetingId: String, pollId: String, option: PollOption) async throws {
+        let ref = pollsRef(familyId: familyId, meetingId: meetingId).document(pollId)
+        // 동시 추가 시 옵션 유실 방지
+        _ = try await db.runTransaction { transaction, errorPointer in
+            let snapshot: DocumentSnapshot
+            do {
+                snapshot = try transaction.getDocument(ref)
+            } catch {
+                errorPointer?.pointee = error as NSError
+                return nil
+            }
+            guard let data = snapshot.data() else { return nil }
+            var options = data["options"] as? [[String: Any]] ?? []
+            options.append([
+                "id": option.id,
+                "title": option.title,
+                "description": option.description as Any,
+                "imageURL": option.imageURL as Any,
+                "linkURL": option.linkURL as Any,
+                "voterIds": [String](),
+                "voteCount": 0,
+            ])
+            transaction.updateData(["options": options], forDocument: ref)
+            return nil
+        }
+    }
+
+    func updatePollOptions(familyId: String, meetingId: String, pollId: String, options: [PollOption]) async throws {
+        let ref = pollsRef(familyId: familyId, meetingId: meetingId).document(pollId)
+        // 트랜잭션으로 기존 voterIds 보존하며 옵션 배열 교체.
+        _ = try await db.runTransaction { transaction, errorPointer in
+            let snapshot: DocumentSnapshot
+            do {
+                snapshot = try transaction.getDocument(ref)
+            } catch {
+                errorPointer?.pointee = error as NSError
+                return nil
+            }
+            let existing = (snapshot.data()? ["options"] as? [[String: Any]]) ?? []
+            var voterMap: [String: ([String], Int)] = [:]
+            for opt in existing {
+                guard let id = opt["id"] as? String else { continue }
+                voterMap[id] = (opt["voterIds"] as? [String] ?? [], opt["voteCount"] as? Int ?? 0)
+            }
+            let merged: [[String: Any]] = options.map { option in
+                let preserved = voterMap[option.id] ?? ([], 0)
+                return [
+                    "id": option.id,
+                    "title": option.title,
+                    "description": option.description as Any,
+                    "imageURL": option.imageURL as Any,
+                    "linkURL": option.linkURL as Any,
+                    "voterIds": preserved.0,
+                    "voteCount": preserved.1,
+                ]
+            }
+            transaction.updateData(["options": merged], forDocument: ref)
+            return nil
+        }
+    }
+
     func deletePoll(familyId: String, meetingId: String, pollId: String) async throws {
         // hasPoll 업데이트를 먼저 수행해 UI(투표 뱃지)가 곧바로 옳게 반영되게 함.
         // 투표 문서는 그 다음 삭제. 두 단계 중 한 쪽만 실패해도 UI는 정합성 유지.
