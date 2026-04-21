@@ -85,7 +85,13 @@ final class FirebaseMeetingRepository: MeetingRepositoryProtocol {
             try? await pollDoc.reference.delete()
         }
 
-        // 2. records 서브컬렉션 — 사진 URL까지 전부 Storage에서 삭제 후 문서 삭제
+        // 2. comments 서브컬렉션 (모임 의견)
+        let commentsSnapshot = try await meetingRef.collection("comments").getDocuments()
+        for commentDoc in commentsSnapshot.documents {
+            try? await commentDoc.reference.delete()
+        }
+
+        // 3. records 서브컬렉션 — 사진 URL까지 전부 Storage에서 삭제 후 문서 삭제
         let recordsSnapshot = try await meetingRef.collection("records").getDocuments()
         for recordDoc in recordsSnapshot.documents {
             if let photos = recordDoc.data()["photos"] as? [String] {
@@ -96,8 +102,67 @@ final class FirebaseMeetingRepository: MeetingRepositoryProtocol {
             try? await recordDoc.reference.delete()
         }
 
-        // 3. meeting 문서 자체 삭제
+        // 4. meeting 문서 자체 삭제
         try await meetingRef.delete()
+    }
+
+    // MARK: - 모임 의견
+
+    private func commentsRef(familyId: String, meetingId: String) -> CollectionReference {
+        meetingsRef(familyId: familyId).document(meetingId).collection("comments")
+    }
+
+    func getComments(familyId: String, meetingId: String) async throws -> [MeetingComment] {
+        let snapshot = try await commentsRef(familyId: familyId, meetingId: meetingId)
+            .order(by: "createdAt", descending: false)
+            .getDocuments()
+        return snapshot.documents.compactMap { doc in
+            let data = doc.data()
+            guard let userId = data["userId"] as? String,
+                  let userName = data["userName"] as? String,
+                  let text = data["text"] as? String,
+                  let ts = data["createdAt"] as? Timestamp else { return nil }
+            return MeetingComment(
+                id: doc.documentID,
+                userId: userId,
+                userName: userName,
+                text: text,
+                createdAt: ts.dateValue()
+            )
+        }
+    }
+
+    func addComment(familyId: String, meetingId: String, comment: MeetingComment) async throws -> MeetingComment {
+        let docRef = commentsRef(familyId: familyId, meetingId: meetingId).document()
+        let now = Date()
+        let data: [String: Any] = [
+            "userId": comment.userId,
+            "userName": comment.userName,
+            "text": comment.text,
+            "createdAt": Timestamp(date: now),
+        ]
+        try await docRef.setData(data)
+        return MeetingComment(
+            id: docRef.documentID,
+            userId: comment.userId,
+            userName: comment.userName,
+            text: comment.text,
+            createdAt: now
+        )
+    }
+
+    func updateComment(familyId: String, meetingId: String, commentId: String, text: String) async throws {
+        try await commentsRef(familyId: familyId, meetingId: meetingId)
+            .document(commentId)
+            .updateData([
+                "text": text,
+                "updatedAt": Timestamp(date: Date()),
+            ])
+    }
+
+    func deleteComment(familyId: String, meetingId: String, commentId: String) async throws {
+        try await commentsRef(familyId: familyId, meetingId: meetingId)
+            .document(commentId).delete()
     }
 
     /// Firebase Storage 다운로드 URL로부터 참조를 구성해 삭제.

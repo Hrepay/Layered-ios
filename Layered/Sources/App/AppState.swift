@@ -443,6 +443,45 @@ final class AppState {
         await refreshMeetings()
     }
 
+    func addPollOption(meetingId: String, pollId: String, option: PollOption) async throws {
+        guard let familyId = currentFamily?.id else { throw AppStateError.noFamily }
+        try await pollRepository.addOption(familyId: familyId, meetingId: meetingId, pollId: pollId, option: option)
+    }
+
+    func updatePollOptions(meetingId: String, pollId: String, options: [PollOption]) async throws {
+        guard let familyId = currentFamily?.id else { throw AppStateError.noFamily }
+        try await pollRepository.updatePollOptions(familyId: familyId, meetingId: meetingId, pollId: pollId, options: options)
+    }
+
+    // MARK: - 모임 의견 (단일/후보 모드 무관)
+    func getMeetingComments(meetingId: String) async throws -> [MeetingComment] {
+        guard let familyId = currentFamily?.id else { throw AppStateError.noFamily }
+        return try await meetingRepository.getComments(familyId: familyId, meetingId: meetingId)
+    }
+
+    func addMeetingComment(meetingId: String, text: String) async throws -> MeetingComment {
+        guard let familyId = currentFamily?.id,
+              let user = currentUser else { throw AppStateError.noFamily }
+        let comment = MeetingComment(
+            id: UUID().uuidString,
+            userId: user.id,
+            userName: user.name,
+            text: text,
+            createdAt: Date()
+        )
+        return try await meetingRepository.addComment(familyId: familyId, meetingId: meetingId, comment: comment)
+    }
+
+    func updateMeetingComment(meetingId: String, commentId: String, text: String) async throws {
+        guard let familyId = currentFamily?.id else { throw AppStateError.noFamily }
+        try await meetingRepository.updateComment(familyId: familyId, meetingId: meetingId, commentId: commentId, text: text)
+    }
+
+    func deleteMeetingComment(meetingId: String, commentId: String) async throws {
+        guard let familyId = currentFamily?.id else { throw AppStateError.noFamily }
+        try await meetingRepository.deleteComment(familyId: familyId, meetingId: meetingId, commentId: commentId)
+    }
+
     // MARK: - 기록 CRUD
     @MainActor
     func createRecord(meetingId: String, record: MeetingRecord) async throws -> MeetingRecord {

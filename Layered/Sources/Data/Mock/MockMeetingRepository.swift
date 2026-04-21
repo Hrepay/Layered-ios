@@ -16,4 +16,12 @@ final class MockMeetingRepository: MeetingRepositoryProtocol {
     func updateMeeting(familyId: String, meeting: Meeting) async throws {}
 
     func deleteMeeting(familyId: String, meetingId: String) async throws {}
+
+    func getComments(familyId: String, meetingId: String) async throws -> [MeetingComment] { [] }
+
+    func addComment(familyId: String, meetingId: String, comment: MeetingComment) async throws -> MeetingComment { comment }
+
+    func updateComment(familyId: String, meetingId: String, commentId: String, text: String) async throws {}
+
+    func deleteComment(familyId: String, meetingId: String, commentId: String) async throws {}
 }
