@@ -41,7 +41,8 @@ final class FirebaseUserRepository: UserRepositoryProtocol {
         return NotificationSettings(
             enabled: data["notificationsEnabled"] as? Bool ?? true,
             plannerReminder: data["notifyPlannerReminder"] as? Bool ?? true,
-            meetingCreated: data["notifyMeetingCreated"] as? Bool ?? true
+            meetingCreated: data["notifyMeetingCreated"] as? Bool ?? true,
+            meetingComment: data["notifyMeetingComment"] as? Bool ?? true
         )
     }
 
@@ -50,6 +51,7 @@ final class FirebaseUserRepository: UserRepositoryProtocol {
             "notificationsEnabled": settings.enabled,
             "notifyPlannerReminder": settings.plannerReminder,
             "notifyMeetingCreated": settings.meetingCreated,
+            "notifyMeetingComment": settings.meetingComment,
         ])
     }
 

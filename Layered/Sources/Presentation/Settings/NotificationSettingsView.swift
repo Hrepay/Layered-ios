@@ -10,6 +10,7 @@ struct NotificationSettingsView: View {
     @State private var notificationsEnabled = true
     @State private var plannerReminder = true
     @State private var meetingCreated = true
+    @State private var meetingComment = true
     @State private var isLoaded = false
 
     private var masterEnabled: Bool {
@@ -78,6 +79,10 @@ struct NotificationSettingsView: View {
                     Toggle("모임 등록", isOn: $meetingCreated)
                         .tint(AppColors.primary)
                         .onChange(of: meetingCreated) { _, _ in save() }
+
+                    Toggle("모임 의견", isOn: $meetingComment)
+                        .tint(AppColors.primary)
+                        .onChange(of: meetingComment) { _, _ in save() }
                 }
                 .disabled(!masterEnabled)
             }
@@ -90,6 +95,7 @@ struct NotificationSettingsView: View {
             notificationsEnabled = settings.enabled
             plannerReminder = settings.plannerReminder
             meetingCreated = settings.meetingCreated
+            meetingComment = settings.meetingComment
             isLoaded = true
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -107,7 +113,8 @@ struct NotificationSettingsView: View {
                 NotificationSettings(
                     enabled: notificationsEnabled,
                     plannerReminder: plannerReminder,
-                    meetingCreated: meetingCreated
+                    meetingCreated: meetingCreated,
+                    meetingComment: meetingComment
                 )
             )
         }

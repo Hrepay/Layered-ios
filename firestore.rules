@@ -69,6 +69,21 @@ service cloud.firestore {
         match /polls/{pollId} {
           allow read, write: if isMemberOf(familyId);
         }
+
+        // 모임 의견: 멤버 누구나 읽기/작성, 수정·삭제는 본인만
+        match /comments/{commentId} {
+          allow read: if isMemberOf(familyId);
+          allow create: if isMemberOf(familyId)
+            && request.resource.data.userId == request.auth.uid;
+          allow update: if isMemberOf(familyId)
+            && resource.data.userId == request.auth.uid
+            // 작성자 정보는 변경 불가
+            && request.resource.data.userId == resource.data.userId
+            && request.resource.data.userName == resource.data.userName
+            && request.resource.data.createdAt == resource.data.createdAt;
+          allow delete: if isMemberOf(familyId)
+            && resource.data.userId == request.auth.uid;
+        }
       }
     }
 

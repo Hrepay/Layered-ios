@@ -205,6 +205,95 @@ export const remindPlanner = onSchedule(
 );
 
 // ============================================================
+// 4b. 모임 의견 알림 — Firestore Trigger
+// ============================================================
+// 가족 멤버가 모임에 의견을 남기면 나머지 가족에게 푸시.
+// 작성자 본인은 알림 수신에서 제외.
+export const onMeetingCommentCreated = onDocumentCreated(
+  "families/{familyId}/meetings/{meetingId}/comments/{commentId}",
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+
+    const commentData = snapshot.data();
+    const familyId = event.params.familyId;
+    const meetingId = event.params.meetingId;
+
+    const authorId = commentData.userId as string | undefined;
+    const authorName =
+      (commentData.userName as string | undefined) || "누군가";
+    const rawText = (commentData.text as string | undefined) || "";
+    // FCM payload 보호: 60자 + 말줄임
+    const preview =
+      rawText.length > 60 ? rawText.slice(0, 60) + "…" : rawText;
+
+    // 모임 장소 (후보 모드면 빈 문자열 → fallback)
+    let meetingContext = "이번 모임";
+    try {
+      const meetingDoc = await db
+        .collection("families").doc(familyId)
+        .collection("meetings").doc(meetingId)
+        .get();
+      const place = meetingDoc.data()?.place as string | undefined;
+      if (place && place.length > 0) meetingContext = place;
+      else if (meetingDoc.data()?.hasPoll) meetingContext = "장소 투표 중인 모임";
+    } catch (e) {
+      console.error("Meeting fetch failed:", e);
+    }
+
+    // 토큰 수집 — 작성자 제외 + notifyMeetingComment !== false
+    const membersSnap = await db
+      .collection("families").doc(familyId)
+      .collection("members").get();
+
+    const tokens: string[] = [];
+    for (const memberDoc of membersSnap.docs) {
+      if (memberDoc.id === authorId) continue;
+      const userDoc = await db
+        .collection("users").doc(memberDoc.id).get();
+      const userData = userDoc.data();
+      const fcmToken = userData?.fcmToken;
+      const notificationsEnabled =
+        userData?.notificationsEnabled !== false;
+      const notifyMeetingComment =
+        userData?.notifyMeetingComment !== false;
+      if (fcmToken && notificationsEnabled && notifyMeetingComment) {
+        tokens.push(fcmToken);
+      }
+    }
+
+    if (tokens.length === 0) return;
+
+    const message = {
+      notification: {
+        title: `${authorName}님이 의견을 남겼어요`,
+        body: `${meetingContext} · ${preview}`,
+      },
+      tokens: tokens,
+    };
+
+    try {
+      const response = await getMessaging()
+        .sendEachForMulticast(message);
+      console.log(
+        `Comment notification: ${response.successCount} ok, ` +
+        `${response.failureCount} fail`
+      );
+      response.responses.forEach((r, i) => {
+        if (!r.success) {
+          console.error(
+            `Failed token[${i}] ${tokens[i].substring(0, 20)}...: ` +
+            `code=${r.error?.code} msg=${r.error?.message}`
+          );
+        }
+      });
+    } catch (error) {
+      console.error("Comment notification error:", error);
+    }
+  }
+);
+
+// ============================================================
 // 5. 고아 가정 정리 — 매주 월요일 새벽 3시 (KST)
 // ============================================================
 // 멤버 0명이거나, 모든 멤버의 users 문서가 사라진 가정은
