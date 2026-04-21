@@ -119,15 +119,18 @@ struct HomeView: View {
                 }
             }
             .fullScreenCover(item: $showMeetingDetail) { meeting in
-                MeetingDetailView(meeting: meeting, onBack: {
-                    showMeetingDetail = nil
-                }, onDeleted: {
-                    showMeetingDetail = nil
-                    Task { await appState.refreshMeetings() }
-                }, onUpdated: {
-                    Task { await appState.refreshMeetings() }
-                })
-                .environment(appState)
+                NavigationStack {
+                    MeetingDetailView(meeting: meeting, onBack: {
+                        showMeetingDetail = nil
+                    }, onDeleted: {
+                        showMeetingDetail = nil
+                        Task { await appState.refreshMeetings() }
+                    }, onUpdated: {
+                        Task { await appState.refreshMeetings() }
+                    })
+                    .environment(appState)
+                }
+                .errorAlert(Bindable(appState).error)
             }
             .fullScreenCover(isPresented: $showCreateMeeting) {
                 CreateMeetingView(onBack: {
@@ -274,7 +277,7 @@ struct HomeView: View {
 
                 // 장소 + 활동 아이콘들
                 HStack(alignment: .top) {
-                    Text(meeting.place)
+                    Text(meeting.displayPlace)
                         .font(.title2)
                         .fontWeight(.bold)
                         .foregroundStyle(.primary)
@@ -390,7 +393,7 @@ struct HomeView: View {
                 .font(.headline)
                 .foregroundStyle(.primary)
 
-            Text("\(meeting.place)에서의 모임을 기록해보세요")
+            Text("\(meeting.displayPlace)에서의 모임을 기록해보세요")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 

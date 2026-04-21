@@ -83,7 +83,7 @@ struct CreateRecordView: View {
                             .foregroundStyle(AppColors.primary)
 
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(meeting.place)
+                            Text(meeting.displayPlace)
                                 .font(.headline)
 
                             Text(formatDate(meeting.meetingDate))

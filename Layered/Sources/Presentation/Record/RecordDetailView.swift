@@ -61,7 +61,7 @@ struct RecordDetailView: View {
                                 .foregroundStyle(AppColors.primary)
 
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(meeting.place)
+                                Text(meeting.displayPlace)
                                     .font(.headline)
                                     .foregroundStyle(.primary)
 
@@ -192,7 +192,9 @@ struct RecordDetailView: View {
         .task {
             await loadRecords()
         }
-        .fullScreenCover(isPresented: $showMeetingDetail) {
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationDestination(isPresented: $showMeetingDetail) {
             MeetingDetailView(
                 meeting: meeting,
                 onBack: { showMeetingDetail = false },

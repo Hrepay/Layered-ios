@@ -10,12 +10,18 @@ struct MeetingDetailView: View {
     var showsActionMenu: Bool = true
 
     @Environment(AppState.self) private var appState: AppState
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var showDeleteAlert = false
     @State private var showEdit = false
-    @State private var showPoll = false
     @State private var poll: Poll?
     @State private var linkMetadata: LPLinkMetadata?
+    @State private var showAddCandidate = false
+    @State private var newCandidateTitle = ""
+    @State private var newCandidateLink = ""
+    @State private var confirmCandidateOption: PollOption?
+    @State private var isMutatingPoll = false
+    @State private var showDiscussion = false
 
     init(meeting: Meeting, onBack: @escaping () -> Void, onDeleted: (() -> Void)? = nil, onUpdated: (() -> Void)? = nil, showsActionMenu: Bool = true) {
         _meeting = State(initialValue: meeting)
@@ -63,12 +69,14 @@ struct MeetingDetailView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         BadgeView(text: statusText, color: statusColor)
 
-                        Text(meeting.place)
+                        Text(meeting.hasPoll && meeting.place.isEmpty ? "장소 투표 중" : meeting.place)
                             .font(.title)
                             .fontWeight(.bold)
                             .foregroundStyle(.primary)
 
-                        Text("함께 모여 따뜻한 시간을 보냅니다.")
+                        Text(meeting.hasPoll && meeting.place.isEmpty
+                             ? "가족들과 함께 갈 곳을 정해보세요."
+                             : "함께 모여 따뜻한 시간을 보냅니다.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -106,28 +114,12 @@ struct MeetingDetailView: View {
                     }
                     .card()
 
-                    // MARK: - 장소 카드
-                    HStack(spacing: 14) {
-                        Image(systemName: "mappin.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(AppColors.primary)
-                            .frame(width: 44, height: 44)
-                            .background(Color(.systemBackground))
-                            .clipShape(Circle())
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("장소")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(meeting.place)
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.primary)
-                        }
-
-                        Spacer()
+                    // MARK: - 장소 카드 (단일) 또는 후보 리스트 (투표 중)
+                    if meeting.hasPoll && meeting.place.isEmpty {
+                        candidatesCard
+                    } else {
+                        singlePlaceCard
                     }
-                    .card()
 
                     // MARK: - 활동 & 플래너 (2열 그리드)
                     HStack(spacing: 12) {
@@ -251,34 +243,17 @@ struct MeetingDetailView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 20))
                     }
 
-                    // MARK: - 하단 투표 버튼
-                    if meeting.hasPoll, poll != nil {
-                        Button(action: {
-                            Haptic.medium()
-                            showPoll = true
-                        }) {
-                            HStack {
-                                Image(systemName: "chart.bar.fill")
-                                    .font(.body)
-                                Text("투표 참여 / 결과 보기")
-                                    .fontWeight(.semibold)
-                            }
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(AppColors.primary)
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
-                        }
-                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
-                .padding(.bottom, 32)
+                .padding(.bottom, 16)
             }
             .refreshable {
                 await reloadDetail()
             }
         }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
         .task(id: "\(meeting.id)|\(meeting.placeURL ?? "")") {
             linkMetadata = nil
             await reloadDetail()
@@ -289,24 +264,18 @@ struct MeetingDetailView: View {
             }, onSaved: { updatedMeeting in
                 showEdit = false
                 meeting = updatedMeeting
-                Task {
-                    do {
-                        try await appState.updateMeeting(updatedMeeting)
-                        onUpdated?()
-                    } catch {
-                        appState.error = AppError.from(error)
-                    }
-                }
+                onUpdated?()
+                // EditView에서 Poll 변경이 일어났을 수 있어 다시 로드
+                Task { await reloadDetail() }
             })
+            .environment(appState)
         }
-        .fullScreenCover(isPresented: $showPoll) {
-            if let poll {
-                PollVoteView(poll: poll, onBack: {
-                    showPoll = false
-                    refreshPoll()
-                }, meetingId: meeting.id)
-                    .environment(appState)
-            }
+        .navigationDestination(isPresented: $showDiscussion) {
+            MeetingDiscussionView(meeting: meeting, onBack: {
+                showDiscussion = false
+                Task { await reloadDetail() }
+            })
+            .environment(appState)
         }
         .alert("모임 삭제", isPresented: $showDeleteAlert) {
             Button("취소", role: .cancel) {}
@@ -323,7 +292,300 @@ struct MeetingDetailView: View {
         } message: {
             Text("정말 삭제하시겠습니까?\n관련 기록도 함께 삭제됩니다.")
         }
+        .alert("이 장소로 확정", isPresented: Binding(
+            get: { confirmCandidateOption != nil },
+            set: { if !$0 { confirmCandidateOption = nil } }
+        ), presenting: confirmCandidateOption) { option in
+            Button("취소", role: .cancel) { confirmCandidateOption = nil }
+            Button("확정") {
+                Task { await confirmCandidate(option) }
+            }
+        } message: { option in
+            Text("'\(option.title)' 으로 모임 장소를 확정하시겠습니까?\n투표는 종료됩니다.")
+        }
+        .sheet(isPresented: $showAddCandidate) {
+            addCandidateSheet
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // 백그라운드에서 돌아올 때 다른 멤버의 의견/투표 자동 반영
+            if newPhase == .active {
+                Task { await reloadDetail() }
+            }
+        }
         .swipeBack(onBack: onBack)
+    }
+
+    // MARK: - 단일 장소 카드 (탭 → Discussion)
+
+    @ViewBuilder
+    private var singlePlaceCard: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "mappin.circle.fill")
+                .font(.title3)
+                .foregroundStyle(AppColors.primary)
+                .frame(width: 44, height: 44)
+                .background(Color(.systemBackground))
+                .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("장소")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(meeting.place)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.primary)
+            }
+
+            Spacer()
+
+            Image(systemName: "bubble.left.and.bubble.right.fill")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .card()
+        .contentShape(Rectangle())
+        .onTapGesture {
+            Haptic.light()
+            showDiscussion = true
+        }
+    }
+
+    // MARK: - 후보 카드 (투표 모드)
+
+    @ViewBuilder
+    private var candidatesCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Text("장소 후보")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.primary)
+                Spacer()
+                if let poll {
+                    Text("\(poll.options.count)곳")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let poll {
+                let maxVotes = poll.options.map(\.voteCount).max() ?? 0
+                let totalVotes = poll.options.reduce(0) { $0 + $1.voteCount }
+
+                ForEach(poll.options) { option in
+                    candidateRow(option: option, maxVotes: maxVotes, totalVotes: totalVotes)
+                }
+
+                if isPlanner && poll.options.count < 4 {
+                    Button {
+                        Haptic.light()
+                        newCandidateTitle = ""
+                        newCandidateLink = ""
+                        showAddCandidate = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus.circle.fill")
+                            Text("후보 추가")
+                        }
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundStyle(AppColors.primary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(AppColors.primarySubtle)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .disabled(isMutatingPoll)
+                }
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView().scaleEffect(0.8)
+                    Text("후보 불러오는 중...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .card()
+        .contentShape(Rectangle())
+        .onTapGesture {
+            Haptic.light()
+            showDiscussion = true
+        }
+    }
+
+    @ViewBuilder
+    private func candidateRow(option: PollOption, maxVotes: Int, totalVotes: Int) -> some View {
+        let isWinner = option.voteCount == maxVotes && maxVotes > 0
+        VStack(alignment: .leading, spacing: 10) {
+            // 상단: 제목 + (오른쪽 끝) 링크
+            HStack(spacing: 8) {
+                Text(option.title)
+                    .font(.subheadline)
+                    .fontWeight(isWinner ? .bold : .medium)
+                    .foregroundStyle(.primary)
+                Spacer()
+                if let urlString = option.linkURL, let url = URL(string: urlString) {
+                    Link(destination: url) {
+                        Image(systemName: "link")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(AppColors.primary)
+                            .frame(width: 26, height: 26)
+                            .background(Circle().fill(AppColors.primarySubtle))
+                    }
+                }
+            }
+
+            // 하단: 바 + 표수 + 확정
+            HStack(spacing: 10) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color(.systemGray5))
+                            .frame(height: 6)
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(isWinner ? AppColors.primary : Color(.systemGray3))
+                            .frame(
+                                width: totalVotes > 0
+                                    ? geo.size.width * CGFloat(option.voteCount) / CGFloat(totalVotes)
+                                    : 0,
+                                height: 6
+                            )
+                            .animation(.spring(duration: 0.4), value: option.voteCount)
+                    }
+                }
+                .frame(height: 6)
+
+                Text("\(option.voteCount)표")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(isWinner ? AppColors.primary : .secondary)
+
+                if isPlanner {
+                    Button {
+                        Haptic.light()
+                        confirmCandidateOption = option
+                    } label: {
+                        Text("확정")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(AppColors.primary)
+                            .clipShape(Capsule())
+                    }
+                    .disabled(isMutatingPoll)
+                }
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color(.systemBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(isWinner ? AppColors.primary.opacity(0.4) : Color(.systemGray5), lineWidth: 1)
+        )
+    }
+
+    // MARK: - 후보 추가 시트
+
+    @ViewBuilder
+    private var addCandidateSheet: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                AppTextField(placeholder: "장소명", text: $newCandidateTitle)
+                AppTextField(placeholder: "링크 (선택)", text: $newCandidateLink)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.URL)
+                    .onChange(of: newCandidateLink) { _, newValue in
+                        if let extracted = URLExtractor.firstURL(in: newValue),
+                           extracted.absoluteString != newValue {
+                            newCandidateLink = extracted.absoluteString
+                        }
+                    }
+                Spacer()
+            }
+            .padding(20)
+            .navigationTitle("후보 추가")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("취소") { showAddCandidate = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("추가") {
+                        Task { await addCandidate() }
+                    }
+                    .disabled(newCandidateTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isMutatingPoll)
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    // MARK: - Poll mutation actions
+
+    @MainActor
+    private func confirmCandidate(_ option: PollOption) async {
+        guard let pollId = poll?.id else { return }
+        isMutatingPoll = true
+        defer { isMutatingPoll = false }
+
+        var updated = meeting
+        updated.place = option.title
+        updated.placeURL = option.linkURL
+        updated.placeLatitude = nil
+        updated.placeLongitude = nil
+        updated.status = .confirmed
+        updated.hasPoll = false
+        updated.updatedAt = Date()
+
+        do {
+            try await appState.updateMeeting(updated)
+            try? await appState.deletePoll(meetingId: meeting.id, pollId: pollId)
+            meeting = updated
+            poll = nil
+            confirmCandidateOption = nil
+            onUpdated?()
+        } catch {
+            appState.error = AppError.from(error)
+        }
+    }
+
+    @MainActor
+    private func addCandidate() async {
+        guard let pollId = poll?.id else { return }
+        let title = newCandidateTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        isMutatingPoll = true
+        defer { isMutatingPoll = false }
+
+        let linkURL = URLExtractor.firstURL(in: newCandidateLink)?.absoluteString
+        let option = PollOption(
+            id: UUID().uuidString,
+            title: title,
+            description: nil,
+            imageURL: nil,
+            linkURL: linkURL,
+            voterIds: [],
+            voteCount: 0
+        )
+        do {
+            try await appState.addPollOption(meetingId: meeting.id, pollId: pollId, option: option)
+            showAddCandidate = false
+            await reloadDetail()
+        } catch {
+            appState.error = AppError.from(error)
+        }
     }
 
     // MARK: - Computed
@@ -372,6 +634,8 @@ struct MeetingDetailView: View {
         if meeting.hasPoll {
             let polls = try? await appState.getPolls(meetingId: meeting.id)
             poll = polls?.first
+        } else {
+            poll = nil
         }
         guard let urlString = meeting.placeURL else { return }
         #if DEBUG
@@ -384,15 +648,6 @@ struct MeetingDetailView: View {
             let provider = LPMetadataProvider()
             if let metadata = try? await provider.startFetchingMetadata(for: url) {
                 linkMetadata = metadata
-            }
-        }
-    }
-
-    private func refreshPoll() {
-        guard let currentPoll = poll else { return }
-        Task {
-            if let updated = try? await appState.getPoll(meetingId: meeting.id, pollId: currentPoll.id) {
-                poll = updated
             }
         }
     }
@@ -420,9 +675,15 @@ struct MeetingDetailView: View {
 }
 
 #Preview("확정된 모임") {
-    MeetingDetailView(meeting: MockData.meetings[0], onBack: {})
+    NavigationStack {
+        MeetingDetailView(meeting: MockData.meetings[0], onBack: {})
+            .environment(AppState())
+    }
 }
 
 #Preview("완료된 모임") {
-    MeetingDetailView(meeting: MockData.meetings[1], onBack: {})
+    NavigationStack {
+        MeetingDetailView(meeting: MockData.meetings[1], onBack: {})
+            .environment(AppState())
+    }
 }

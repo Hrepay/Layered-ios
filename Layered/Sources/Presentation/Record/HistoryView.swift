@@ -83,7 +83,7 @@ struct HistoryView: View {
                                         // 모임 카드
                                         VStack(alignment: .leading, spacing: 8) {
                                             HStack {
-                                                Text(meeting.place)
+                                                Text(meeting.displayPlace)
                                                     .font(.subheadline)
                                                     .fontWeight(.semibold)
                                                     .foregroundStyle(.primary)
@@ -151,13 +151,16 @@ struct HistoryView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(item: $selectedMeeting) { meeting in
-                RecordDetailView(meeting: meeting, onBack: {
-                    selectedMeeting = nil
-                }, onDeleted: {
-                    selectedMeeting = nil
-                    Task { await appState.refreshMeetings() }
-                })
-                .environment(appState)
+                NavigationStack {
+                    RecordDetailView(meeting: meeting, onBack: {
+                        selectedMeeting = nil
+                    }, onDeleted: {
+                        selectedMeeting = nil
+                        Task { await appState.refreshMeetings() }
+                    })
+                    .environment(appState)
+                }
+                .errorAlert(Bindable(appState).error)
             }
         }
     }
