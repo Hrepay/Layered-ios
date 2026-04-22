@@ -22,6 +22,7 @@ struct MeetingDetailView: View {
     @State private var confirmCandidateOption: PollOption?
     @State private var isMutatingPoll = false
     @State private var showDiscussion = false
+    @State private var showParticipants = false
 
     init(meeting: Meeting, onBack: @escaping () -> Void, onDeleted: (() -> Void)? = nil, onUpdated: (() -> Void)? = nil, showsActionMenu: Bool = true) {
         _meeting = State(initialValue: meeting)
@@ -195,6 +196,11 @@ struct MeetingDetailView: View {
                             }
                         }
                         .card()
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            Haptic.light()
+                            showParticipants = true
+                        }
                     }
 
                     // MARK: - 장소 링크 미리보기
@@ -305,6 +311,10 @@ struct MeetingDetailView: View {
         }
         .sheet(isPresented: $showAddCandidate) {
             addCandidateSheet
+        }
+        .fullScreenCover(isPresented: $showParticipants) {
+            MeetingParticipantsView(onBack: { showParticipants = false })
+                .environment(appState)
         }
         .onChange(of: scenePhase) { _, newPhase in
             // 백그라운드에서 돌아올 때 다른 멤버의 의견/투표 자동 반영
