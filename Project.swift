@@ -16,7 +16,7 @@ let project = Project(
             destinations: [.iPhone],
             product: .app,
             bundleId: "io.github.hrepay.layered",
-            deploymentTargets: .iOS("17.0"),
+            deploymentTargets: .iOS("18.0"),
             infoPlist: .extendingDefault(
                 with: [
                     "UILaunchScreen": [
