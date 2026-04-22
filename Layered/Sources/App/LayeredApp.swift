@@ -6,6 +6,10 @@ import FirebaseMessaging
 import UserNotifications
 
 class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNUserNotificationCenterDelegate, UIGestureRecognizerDelegate {
+    /// 특정 화면(예: MeetingDiscussionView의 채팅형 UI)에서 전역 키보드 dismiss
+    /// gesture를 일시적으로 끄기 위한 플래그. 해당 화면의 onAppear/onDisappear로 제어.
+    static var suspendGlobalKeyboardDismiss: Bool = false
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -60,11 +64,24 @@ class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNUserNot
         true
     }
 
-    // TextField/TextView 영역에서 시작된 터치는 받지 않음 (텍스트 선택/더블탭 보존)
+    // TextField/TextView 영역에서 시작된 터치는 받지 않음 (텍스트 선택/더블탭 보존).
+    // 버튼성 UI(UIControl + accessibilityTraits에 .button 있는 SwiftUI Button) 영역도 제외 —
+    // 버튼 탭 시 전역 endEditing이 키보드를 내렸다가 Button action이 다시 올리는 깜박임 방지.
+    // SwiftUI Button은 iOS 17+ UIHostingController 안에서 UIControl로 래핑되지 않고
+    // UIView에 accessibilityTraits만 부여하므로 trait 기반 체크가 필요.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        // 채팅형 UI가 활성화된 화면에선 전역 dismiss 전체 비활성.
+        if Self.suspendGlobalKeyboardDismiss { return false }
+
         var view = touch.view
         while let current = view {
-            if current is UITextField || current is UITextView { return false }
+            if current is UITextField || current is UITextView || current is UIControl {
+                return false
+            }
+            if current.accessibilityTraits.contains(.button) ||
+               current.accessibilityTraits.contains(.link) {
+                return false
+            }
             view = current.superview
         }
         return true

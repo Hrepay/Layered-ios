@@ -19,14 +19,16 @@ struct MeetingDiscussionView: View {
     @State private var commentToDelete: MeetingComment?
     @State private var commentToEdit: MeetingComment?
     @State private var visibleCommentCount: Int = 10
-    @State private var pollOnScreen: Bool = true
+    // 투표 섹션이 최상단에 있는지 여부. onScrollGeometryChange(iOS 18+)가
+    // contentOffset 기반으로 자동 업데이트하므로 별도 동기화 불필요.
+    @State private var isAtPollTop: Bool = true
     @FocusState private var inputFocused: Bool
 
     private static let initialCommentPageSize = 10
     private static let commentPageStep = 5
 
     private var shouldShowPollJumpButton: Bool {
-        poll != nil && !pollOnScreen
+        poll != nil && !isAtPollTop
     }
 
     private var hasPoll: Bool {
@@ -46,8 +48,6 @@ struct MeetingDiscussionView: View {
                     if let poll {
                         pollSection(poll: poll)
                             .id("poll_top")
-                            .onAppear { pollOnScreen = true }
-                            .onDisappear { pollOnScreen = false }
                             .listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 8, trailing: 20))
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
@@ -83,21 +83,33 @@ struct MeetingDiscussionView: View {
                         }
                     }
 
-                    Color.clear
-                        .frame(height: 1)
-                        .id("comments_bottom")
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
+                .scrollDismissesKeyboard(.interactively)
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        // 전역 dismiss가 suspend된 상태라 이 화면 내부에서 직접 처리.
+                        if inputFocused { inputFocused = false }
+                    }
+                )
+                .onScrollGeometryChange(for: Bool.self) { geo in
+                    // contentOffset.y가 최상단 근처(± 10pt)면 "최상단"으로 간주.
+                    // Bool로 축약해 값 변화 시에만 action이 호출되도록(성능 최적).
+                    abs(geo.contentOffset.y) < 10
+                } action: { _, atTop in
+                    isAtPollTop = atTop
+                }
                 .onChange(of: comments.count) { _, newCount in
                     if visibleCommentCount > newCount {
                         visibleCommentCount = max(Self.initialCommentPageSize, newCount)
                     }
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo("comments_bottom", anchor: .bottom)
+                    // 마지막 의견의 bottom이 뷰포트 bottom에 붙도록. sentinel row가 있으면
+                    // 그 위에 여백이 생기는 iOS 18 List 이슈가 있어 직접 last comment id로 스크롤.
+                    if let lastId = comments.last?.id {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(lastId, anchor: .bottom)
+                        }
                     }
                 }
                 .overlay(alignment: .top) {
@@ -149,6 +161,14 @@ struct MeetingDiscussionView: View {
             )
         }
         .swipeBack(onBack: onBack)
+        .onAppear {
+            // 이 화면에선 전역 키보드 dismiss gesture를 잠시 꺼두고,
+            // 화면 내부의 scrollDismissesKeyboard + List 탭 gesture로 직접 처리.
+            AppDelegate.suspendGlobalKeyboardDismiss = true
+        }
+        .onDisappear {
+            AppDelegate.suspendGlobalKeyboardDismiss = false
+        }
     }
 
     // MARK: - Poll section
@@ -344,9 +364,10 @@ struct MeetingDiscussionView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Text(comment.text)
+                Text(linkifiedText(comment.text))
                     .font(.body)
                     .foregroundStyle(.primary)
+                    .tint(AppColors.primary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
@@ -470,7 +491,8 @@ struct MeetingDiscussionView: View {
         do {
             _ = try await appState.addMeetingComment(meetingId: meeting.id, text: text)
             inputText = ""
-            inputFocused = false
+            // 전역 키보드 dismiss gesture가 Button 영역을 제외하도록 설정되어 있어
+            // 키보드는 자동으로 유지됨. 별도 focus 복구 불필요.
             // listener가 곧 새 의견을 포함한 목록을 push → 자동 하단 스크롤도 트리거됨.
         } catch {
             appState.error = AppError.from(error)
@@ -516,11 +538,11 @@ struct MeetingDiscussionView: View {
             Text("투표 하기")
                 .font(.subheadline)
                 .fontWeight(.semibold)
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
-                .background(Capsule().fill(AppColors.primarySubtle))
-                .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 2)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(AppColors.primary))
+                .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 3)
         }
         .buttonStyle(.plain)
     }
@@ -536,6 +558,29 @@ struct MeetingDiscussionView: View {
         formatter.locale = Locale(identifier: "ko_KR")
         formatter.unitsStyle = .short
         return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    /// 의견 본문의 URL을 자동 탐지해 클릭 가능한 AttributedString으로 변환.
+    /// NSDataDetector가 http/https/www 패턴을 모두 인식하며, Text가 link 속성을
+    /// 기본 동작으로 처리해 탭 시 Safari로 연결된다.
+    private func linkifiedText(_ text: String) -> AttributedString {
+        let mutable = NSMutableAttributedString(string: text)
+        guard let detector = try? NSDataDetector(
+            types: NSTextCheckingResult.CheckingType.link.rawValue
+        ) else {
+            return AttributedString(mutable)
+        }
+        let fullRange = NSRange(location: 0, length: (text as NSString).length)
+        detector.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
+            guard let match, let url = match.url else { return }
+            mutable.addAttribute(.link, value: url, range: match.range)
+            mutable.addAttribute(
+                .underlineStyle,
+                value: NSUnderlineStyle.single.rawValue,
+                range: match.range
+            )
+        }
+        return AttributedString(mutable)
     }
 }
 
