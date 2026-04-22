@@ -258,6 +258,17 @@ struct SettingsView: View {
 
     @MainActor
     private func fetchAppStoreVersion() async {
+        // 1시간 캐시: 설정 화면 재진입마다 네트워크 호출하지 않도록.
+        let defaults = UserDefaults.standard
+        let cachedVersion = defaults.string(forKey: Self.cachedVersionKey)
+        let cachedAt = defaults.object(forKey: Self.cachedAtKey) as? Date
+        if let cachedVersion,
+           let cachedAt,
+           Date().timeIntervalSince(cachedAt) < Self.cacheTTL {
+            appStoreVersion = cachedVersion
+            return
+        }
+
         guard let bundleId = Bundle.main.bundleIdentifier,
               var components = URLComponents(string: "https://itunes.apple.com/lookup") else { return }
         components.queryItems = [
@@ -270,11 +281,17 @@ struct SettingsView: View {
             let decoded = try JSONDecoder().decode(ITunesLookupResponse.self, from: data)
             if let version = decoded.results.first?.version {
                 appStoreVersion = version
+                defaults.set(version, forKey: Self.cachedVersionKey)
+                defaults.set(Date(), forKey: Self.cachedAtKey)
             }
         } catch {
             // 네트워크 실패/미배포: displayedVersion이 번들 버전으로 fallback
         }
     }
+
+    private static let cachedVersionKey = "appStoreVersion.cached"
+    private static let cachedAtKey = "appStoreVersion.cachedAt"
+    private static let cacheTTL: TimeInterval = 60 * 60 // 1 hour
 }
 
 private struct ITunesLookupResponse: Decodable {
