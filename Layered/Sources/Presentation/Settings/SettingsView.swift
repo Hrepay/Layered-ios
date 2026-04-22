@@ -12,6 +12,13 @@ struct SettingsView: View {
     @State private var showAccount = false
     @State private var showFamilyManagement = false
     @State private var legalURL: URL?
+    @State private var appStoreVersion: String?
+
+    private var displayedVersion: String {
+        if let appStoreVersion { return "v\(appStoreVersion)" }
+        let bundleVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        return "v\(bundleVersion)"
+    }
 
     var body: some View {
         ScrollView {
@@ -121,7 +128,7 @@ struct SettingsView: View {
                     VStack(spacing: 0) {
                         groupedRow(icon: "bell.fill", title: "알림 설정") { showNotification = true }
                         Divider().padding(.leading, 66)
-                        groupedRow(icon: "info.circle.fill", title: "버전 정보", trailing: "v1.0.0") {}
+                        groupedRow(icon: "info.circle.fill", title: "버전 정보", trailing: displayedVersion) {}
                     }
                     .background(Color(.secondarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 20))
@@ -168,6 +175,9 @@ struct SettingsView: View {
             .padding(.horizontal, 20)
         }
         .id(refreshId)
+        .task {
+            await fetchAppStoreVersion()
+        }
         .fullScreenCover(isPresented: $showProfileEdit) {
             ProfileEditView(onBack: {
                 showProfileEdit = false
@@ -245,6 +255,34 @@ struct SettingsView: View {
               family.currentPlannerIndex < members.count else { return "미정" }
         return members[family.currentPlannerIndex].name
     }
+
+    @MainActor
+    private func fetchAppStoreVersion() async {
+        guard let bundleId = Bundle.main.bundleIdentifier,
+              var components = URLComponents(string: "https://itunes.apple.com/lookup") else { return }
+        components.queryItems = [
+            URLQueryItem(name: "bundleId", value: bundleId),
+            URLQueryItem(name: "country", value: "kr")
+        ]
+        guard let url = components.url else { return }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            let decoded = try JSONDecoder().decode(ITunesLookupResponse.self, from: data)
+            if let version = decoded.results.first?.version {
+                appStoreVersion = version
+            }
+        } catch {
+            // 네트워크 실패/미배포: displayedVersion이 번들 버전으로 fallback
+        }
+    }
+}
+
+private struct ITunesLookupResponse: Decodable {
+    let results: [ITunesLookupResult]
+}
+
+private struct ITunesLookupResult: Decodable {
+    let version: String
 }
 
 private struct LegalURLItem: Identifiable {
