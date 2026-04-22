@@ -2,7 +2,7 @@ import {onSchedule} from "firebase-functions/v2/scheduler";
 import {onDocumentCreated} from "firebase-functions/v2/firestore";
 import {setGlobalOptions} from "firebase-functions/v2";
 import {initializeApp} from "firebase-admin/app";
-import {getFirestore, Timestamp} from "firebase-admin/firestore";
+import {getFirestore, Timestamp, FieldValue} from "firebase-admin/firestore";
 import {getMessaging} from "firebase-admin/messaging";
 
 initializeApp();
@@ -100,32 +100,16 @@ export const onMeetingCreated = onDocumentCreated(
       const mmStr = mm > 0 ? ` ${mm}분` : "";
       dateStr = ` · ${m}월 ${d}일 (${day}) ${ampm} ${h12}시${mmStr}`;
     }
-    const message = {
-      notification: {
-        title: `${planner}님이 가족 모임을 등록했어요!`,
-        body: `${place}${dateStr}`,
+    await sendMulticastAndCleanup(
+      tokens,
+      {
+        notification: {
+          title: `${planner}님이 가족 모임을 등록했어요!`,
+          body: `${place}${dateStr}`,
+        },
       },
-      tokens: tokens,
-    };
-
-    try {
-      const response = await getMessaging()
-        .sendEachForMulticast(message);
-      console.log(
-        `Notification: ${response.successCount} ok, ` +
-        `${response.failureCount} fail`
-      );
-      response.responses.forEach((r, i) => {
-        if (!r.success) {
-          console.error(
-            `Failed token[${i}] ${tokens[i].substring(0, 20)}...: ` +
-            `code=${r.error?.code} msg=${r.error?.message}`
-          );
-        }
-      });
-    } catch (error) {
-      console.error("Notification error:", error);
-    }
+      "MeetingCreated"
+    );
   }
 );
 
@@ -186,6 +170,8 @@ export const remindPlanner = onSchedule(
       if (!notificationsEnabled || !notifyPlannerReminder) continue;
 
       const familyName = data.name || "가정";
+      // 단일 send는 multicast helper를 쓸 수 없어 직접 처리.
+      // 실패 에러 코드가 stale token이면 정리.
       try {
         await getMessaging().send({
           notification: {
@@ -198,7 +184,13 @@ export const remindPlanner = onSchedule(
           `Reminder: ${plannerDoc.id} in ${familyDoc.id}`
         );
       } catch (error) {
-        console.error("Reminder error:", error);
+        const code = (error as {code?: string})?.code;
+        console.error(
+          `Reminder error (${plannerDoc.id}): code=${code}`, error
+        );
+        if (code && STALE_TOKEN_CODES.has(code)) {
+          await cleanupInvalidTokens([fcmToken]);
+        }
       }
     }
   }
@@ -264,31 +256,107 @@ export const onMeetingCommentCreated = onDocumentCreated(
 
     if (tokens.length === 0) return;
 
-    const message = {
-      notification: {
-        title: `${authorName}님이 의견을 남겼어요`,
-        body: `${meetingContext} · ${preview}`,
+    await sendMulticastAndCleanup(
+      tokens,
+      {
+        notification: {
+          title: `${authorName}님이 의견을 남겼어요`,
+          body: `${meetingContext} · ${preview}`,
+        },
       },
-      tokens: tokens,
-    };
+      "CommentNotification"
+    );
+  }
+);
 
-    try {
-      const response = await getMessaging()
-        .sendEachForMulticast(message);
-      console.log(
-        `Comment notification: ${response.successCount} ok, ` +
-        `${response.failureCount} fail`
-      );
-      response.responses.forEach((r, i) => {
-        if (!r.success) {
-          console.error(
-            `Failed token[${i}] ${tokens[i].substring(0, 20)}...: ` +
-            `code=${r.error?.code} msg=${r.error?.message}`
-          );
+// ============================================================
+// 4c. 모임 D-Day 알림 — 매일 자정 (KST)
+// ============================================================
+// 오늘 날짜 모임이 있는 가정의 모든 멤버에게 푸시.
+// 본문: "오늘 {가족명} 모임이 있어요 — {장소}"
+export const remindMeetingDDay = onSchedule(
+  {schedule: "0 0 * * *", timeZone: "Asia/Seoul"},
+  async () => {
+    // 실행 시각 기준 KST 오늘 00:00 ~ 내일 00:00 범위 계산.
+    // 런타임은 UTC라 KST 벽시계로 내림 후 -9h 해서 UTC Date로 변환.
+    const now = new Date();
+    const kstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+    const kstMidnight = new Date(Date.UTC(
+      kstNow.getUTCFullYear(),
+      kstNow.getUTCMonth(),
+      kstNow.getUTCDate(),
+      0, 0, 0
+    ));
+    const todayStart = new Date(
+      kstMidnight.getTime() - 9 * 60 * 60 * 1000
+    );
+    const todayEnd = new Date(
+      todayStart.getTime() + 24 * 60 * 60 * 1000
+    );
+
+    const families = await db.collection("families").get();
+
+    for (const familyDoc of families.docs) {
+      const meetingsSnap = await familyDoc.ref
+        .collection("meetings")
+        .where(
+          "meetingDate", ">=",
+          Timestamp.fromDate(todayStart)
+        )
+        .where(
+          "meetingDate", "<",
+          Timestamp.fromDate(todayEnd)
+        )
+        .get();
+
+      if (meetingsSnap.empty) continue;
+
+      const familyName = familyDoc.data().name || "가족";
+
+      // 멤버 토큰 수집 (notifyMeetingDDay !== false 인 멤버만)
+      const membersSnap = await familyDoc.ref
+        .collection("members").get();
+      const tokens: string[] = [];
+      for (const memberDoc of membersSnap.docs) {
+        const userDoc = await db
+          .collection("users").doc(memberDoc.id).get();
+        const userData = userDoc.data();
+        const fcmToken = userData?.fcmToken;
+        const notificationsEnabled =
+          userData?.notificationsEnabled !== false;
+        const notifyMeetingDDay =
+          userData?.notifyMeetingDDay !== false;
+        if (fcmToken && notificationsEnabled && notifyMeetingDDay) {
+          tokens.push(fcmToken);
         }
-      });
-    } catch (error) {
-      console.error("Comment notification error:", error);
+      }
+      if (tokens.length === 0) continue;
+
+      // 같은 날 여러 모임이 있을 수도 있으니 각각 별도 푸시.
+      for (const meetingDoc of meetingsSnap.docs) {
+        const data = meetingDoc.data();
+        const rawPlace = (data.place as string | undefined) || "";
+        const hasPoll = data.hasPoll === true;
+        let placeText: string;
+        if (rawPlace.length > 0) {
+          placeText = rawPlace;
+        } else if (hasPoll) {
+          placeText = "장소 투표 중";
+        } else {
+          placeText = "장소 미정";
+        }
+
+        await sendMulticastAndCleanup(
+          tokens,
+          {
+            notification: {
+              title: "오늘 가족 모임이 있어요!",
+              body: `${familyName} 모임이 있어요 — ${placeText}`,
+            },
+          },
+          `DDay[${familyDoc.id}/${meetingDoc.id}]`
+        );
+      }
     }
   }
 );
@@ -340,6 +408,77 @@ export const cleanupOrphanFamilies = onSchedule(
 // ============================================================
 // Helper
 // ============================================================
+
+/**
+ * FCM이 invalid/unregistered로 답한 토큰으로 간주하는 에러 코드 집합.
+ * 이 코드가 오면 해당 기기는 더 이상 푸시를 받을 수 없으므로
+ * Firestore에서 fcmToken 필드를 제거해 다음 발송 시 낭비를 막는다.
+ */
+const STALE_TOKEN_CODES = new Set<string>([
+  "messaging/registration-token-not-registered",
+  "messaging/invalid-registration-token",
+  "messaging/invalid-argument",
+]);
+
+/**
+ * 주어진 토큰들을 가진 users 문서에서 fcmToken 필드를 제거.
+ * @param {string[]} tokens 무효로 판정된 토큰들
+ */
+async function cleanupInvalidTokens(tokens: string[]): Promise<void> {
+  for (const token of tokens) {
+    const snap = await db.collection("users")
+      .where("fcmToken", "==", token).get();
+    for (const doc of snap.docs) {
+      try {
+        await doc.ref.update({fcmToken: FieldValue.delete()});
+        console.log(`Cleared stale fcmToken from user ${doc.id}`);
+      } catch (e) {
+        console.error(`Failed to clear token for ${doc.id}:`, e);
+      }
+    }
+  }
+}
+
+/**
+ * 멀티캐스트 푸시를 보내고, 무효 토큰은 Firestore에서 자동 정리한다.
+ * @param {string[]} tokens 대상 FCM 토큰
+ * @param {object} payload notification payload (title/body 포함)
+ * @param {string} label 로그 prefix
+ */
+async function sendMulticastAndCleanup(
+  tokens: string[],
+  payload: {notification: {title: string; body: string}},
+  label: string
+): Promise<void> {
+  if (tokens.length === 0) return;
+  try {
+    const response = await getMessaging()
+      .sendEachForMulticast({...payload, tokens});
+    console.log(
+      `${label}: ${response.successCount} ok, ` +
+      `${response.failureCount} fail`
+    );
+    const invalidTokens: string[] = [];
+    response.responses.forEach((r, i) => {
+      if (!r.success) {
+        const code = r.error?.code;
+        console.error(
+          `Failed token[${i}] ${tokens[i].substring(0, 20)}...: ` +
+          `code=${code} msg=${r.error?.message}`
+        );
+        if (code && STALE_TOKEN_CODES.has(code)) {
+          invalidTokens.push(tokens[i]);
+        }
+      }
+    });
+    if (invalidTokens.length > 0) {
+      await cleanupInvalidTokens(invalidTokens);
+    }
+  } catch (error) {
+    console.error(`${label} error:`, error);
+  }
+}
+
 /**
  * 이번 주 월요일 00:00 KST를 UTC Date로 반환.
  * Cloud Functions 런타임이 UTC라서 getDay/getDate를 그대로 쓰면
