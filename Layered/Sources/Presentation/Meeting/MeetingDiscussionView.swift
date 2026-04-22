@@ -18,7 +18,16 @@ struct MeetingDiscussionView: View {
     @State private var isSubmittingComment = false
     @State private var commentToDelete: MeetingComment?
     @State private var commentToEdit: MeetingComment?
+    @State private var visibleCommentCount: Int = 5
+    @State private var pollOnScreen: Bool = true
     @FocusState private var inputFocused: Bool
+
+    private static let initialCommentPageSize = 5
+    private static let commentPageStep = 5
+
+    private var shouldShowPollJumpButton: Bool {
+        poll != nil && !pollOnScreen
+    }
 
     private var hasPoll: Bool {
         meeting.hasPoll && poll != nil
@@ -29,14 +38,17 @@ struct MeetingDiscussionView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            NavBar(title: title, backAction: onBack)
+        ScrollViewReader { proxy in
+            VStack(spacing: 0) {
+                NavBar(title: title, backAction: onBack)
 
-            ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
+                    LazyVStack(alignment: .leading, spacing: 20) {
                         if let poll {
                             pollSection(poll: poll)
+                                .id("poll_top")
+                                .onAppear { pollOnScreen = true }
+                                .onDisappear { pollOnScreen = false }
                         }
 
                         commentsSection
@@ -46,11 +58,22 @@ struct MeetingDiscussionView: View {
                     .padding(.top, 12)
                     .padding(.bottom, 16)
                 }
-                .onChange(of: comments.count) { _, _ in
+                .onChange(of: comments.count) { _, newCount in
+                    if visibleCommentCount > newCount {
+                        visibleCommentCount = max(Self.initialCommentPageSize, newCount)
+                    }
                     withAnimation(.easeOut(duration: 0.2)) {
                         proxy.scrollTo("comments_bottom", anchor: .bottom)
                     }
                 }
+                .overlay(alignment: .top) {
+                    if shouldShowPollJumpButton {
+                        pollJumpButton(proxy: proxy)
+                            .padding(.top, 12)
+                            .transition(.opacity.combined(with: .offset(y: -4)))
+                    }
+                }
+                .animation(.easeInOut(duration: 0.2), value: shouldShowPollJumpButton)
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -222,13 +245,44 @@ struct MeetingDiscussionView: View {
                     .multilineTextAlignment(.center)
                     .padding(.vertical, 12)
             } else {
+                let hiddenCount = max(0, comments.count - visibleCommentCount)
                 VStack(alignment: .leading, spacing: 14) {
-                    ForEach(comments) { comment in
+                    if hiddenCount > 0 {
+                        loadMoreButton(hiddenCount: hiddenCount)
+                    }
+                    ForEach(Array(comments.suffix(visibleCommentCount))) { comment in
                         commentRow(comment)
                     }
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func loadMoreButton(hiddenCount: Int) -> some View {
+        Button {
+            Haptic.light()
+            withAnimation(.easeOut(duration: 0.2)) {
+                visibleCommentCount = min(comments.count, visibleCommentCount + Self.commentPageStep)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.up")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                Text("이전 의견 \(hiddenCount)개 더 보기")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(.secondarySystemBackground))
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -414,6 +468,28 @@ struct MeetingDiscussionView: View {
         } catch {
             appState.error = AppError.from(error)
         }
+    }
+
+    // MARK: - Poll jump floating button
+
+    @ViewBuilder
+    private func pollJumpButton(proxy: ScrollViewProxy) -> some View {
+        Button {
+            Haptic.light()
+            withAnimation(.easeOut(duration: 0.35)) {
+                proxy.scrollTo("poll_top", anchor: .top)
+            }
+        } label: {
+            Text("투표 하기")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(Capsule().fill(AppColors.primarySubtle))
+                .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 2)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Helpers
