@@ -459,6 +459,14 @@ final class AppState {
         return try await meetingRepository.getComments(familyId: familyId, meetingId: meetingId)
     }
 
+    /// 의견 실시간 구독. 뷰가 사라지면 `.task` 취소 → continuation.onTermination에서 listener 해제.
+    func observeMeetingComments(meetingId: String) -> AsyncStream<[MeetingComment]> {
+        guard let familyId = currentFamily?.id else {
+            return AsyncStream { $0.finish() }
+        }
+        return meetingRepository.observeComments(familyId: familyId, meetingId: meetingId)
+    }
+
     func addMeetingComment(meetingId: String, text: String) async throws -> MeetingComment {
         guard let familyId = currentFamily?.id,
               let user = currentUser else { throw AppStateError.noFamily }

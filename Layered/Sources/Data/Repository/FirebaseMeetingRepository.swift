@@ -132,6 +132,34 @@ final class FirebaseMeetingRepository: MeetingRepositoryProtocol {
         }
     }
 
+    func observeComments(familyId: String, meetingId: String) -> AsyncStream<[MeetingComment]> {
+        AsyncStream { continuation in
+            let listener = commentsRef(familyId: familyId, meetingId: meetingId)
+                .order(by: "createdAt", descending: false)
+                .addSnapshotListener { snapshot, _ in
+                    guard let snapshot else { return }
+                    let comments = snapshot.documents.compactMap { doc -> MeetingComment? in
+                        let data = doc.data()
+                        guard let userId = data["userId"] as? String,
+                              let userName = data["userName"] as? String,
+                              let text = data["text"] as? String,
+                              let ts = data["createdAt"] as? Timestamp else { return nil }
+                        return MeetingComment(
+                            id: doc.documentID,
+                            userId: userId,
+                            userName: userName,
+                            text: text,
+                            createdAt: ts.dateValue()
+                        )
+                    }
+                    continuation.yield(comments)
+                }
+            continuation.onTermination = { _ in
+                listener.remove()
+            }
+        }
+    }
+
     func addComment(familyId: String, meetingId: String, comment: MeetingComment) async throws -> MeetingComment {
         let docRef = commentsRef(familyId: familyId, meetingId: meetingId).document()
         let now = Date()

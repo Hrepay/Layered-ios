@@ -18,11 +18,11 @@ struct MeetingDiscussionView: View {
     @State private var isSubmittingComment = false
     @State private var commentToDelete: MeetingComment?
     @State private var commentToEdit: MeetingComment?
-    @State private var visibleCommentCount: Int = 5
+    @State private var visibleCommentCount: Int = 10
     @State private var pollOnScreen: Bool = true
     @FocusState private var inputFocused: Bool
 
-    private static let initialCommentPageSize = 5
+    private static let initialCommentPageSize = 10
     private static let commentPageStep = 5
 
     private var shouldShowPollJumpButton: Bool {
@@ -42,22 +42,56 @@ struct MeetingDiscussionView: View {
             VStack(spacing: 0) {
                 NavBar(title: title, backAction: onBack)
 
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 20) {
-                        if let poll {
-                            pollSection(poll: poll)
-                                .id("poll_top")
-                                .onAppear { pollOnScreen = true }
-                                .onDisappear { pollOnScreen = false }
+                List {
+                    if let poll {
+                        pollSection(poll: poll)
+                            .id("poll_top")
+                            .onAppear { pollOnScreen = true }
+                            .onDisappear { pollOnScreen = false }
+                            .listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 8, trailing: 20))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                    }
+
+                    commentsHeader
+                        .listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 4, trailing: 20))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+
+                    if comments.isEmpty {
+                        emptyCommentsView
+                            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                    } else {
+                        let hiddenCount = max(0, comments.count - visibleCommentCount)
+                        if hiddenCount > 0 {
+                            loadMoreButton(hiddenCount: hiddenCount)
+                                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
                         }
 
-                        commentsSection
-                            .id("comments_bottom")
+                        ForEach(Array(comments.suffix(visibleCommentCount))) { comment in
+                            commentRow(comment)
+                                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    commentSwipeActions(for: comment)
+                                }
+                        }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 12)
-                    .padding(.bottom, 16)
+
+                    Color.clear
+                        .frame(height: 1)
+                        .id("comments_bottom")
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
                 .onChange(of: comments.count) { _, newCount in
                     if visibleCommentCount > newCount {
                         visibleCommentCount = max(Self.initialCommentPageSize, newCount)
@@ -81,8 +115,11 @@ struct MeetingDiscussionView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
-        .task {
+        .task(id: meeting.id) {
             await reload()
+        }
+        .task(id: meeting.id) {
+            await observeComments()
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active { Task { await reload() } }
@@ -220,41 +257,49 @@ struct MeetingDiscussionView: View {
     // MARK: - Comments section
 
     @ViewBuilder
-    private var commentsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // 은은한 구분선 + 가운데 라벨 (포럼/채팅 스타일)
-            HStack(spacing: 10) {
-                Rectangle()
-                    .fill(Color(.systemGray5))
-                    .frame(height: 1)
-                Text(comments.isEmpty ? "의견" : "의견 \(comments.count)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-                Rectangle()
-                    .fill(Color(.systemGray5))
-                    .frame(height: 1)
-            }
-            .padding(.vertical, 4)
+    private var commentsHeader: some View {
+        HStack(spacing: 10) {
+            Rectangle()
+                .fill(Color(.systemGray5))
+                .frame(height: 1)
+            Text(comments.isEmpty ? "의견" : "의견 \(comments.count)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize()
+            Rectangle()
+                .fill(Color(.systemGray5))
+                .frame(height: 1)
+        }
+        .padding(.vertical, 4)
+    }
 
-            if comments.isEmpty {
-                Text("아직 의견이 없어요.\n아래에서 첫 의견을 남겨보세요!")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .multilineTextAlignment(.center)
-                    .padding(.vertical, 12)
-            } else {
-                let hiddenCount = max(0, comments.count - visibleCommentCount)
-                VStack(alignment: .leading, spacing: 14) {
-                    if hiddenCount > 0 {
-                        loadMoreButton(hiddenCount: hiddenCount)
-                    }
-                    ForEach(Array(comments.suffix(visibleCommentCount))) { comment in
-                        commentRow(comment)
-                    }
-                }
+    @ViewBuilder
+    private var emptyCommentsView: some View {
+        Text("아직 의견이 없어요.\n아래에서 첫 의견을 남겨보세요!")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .multilineTextAlignment(.center)
+            .padding(.vertical, 12)
+    }
+
+    @ViewBuilder
+    private func commentSwipeActions(for comment: MeetingComment) -> some View {
+        if comment.userId == appState.currentUser?.id {
+            Button(role: .destructive) {
+                Haptic.light()
+                commentToDelete = comment
+            } label: {
+                Label("삭제", systemImage: "trash")
             }
+
+            Button {
+                Haptic.light()
+                commentToEdit = comment
+            } label: {
+                Label("수정", systemImage: "pencil")
+            }
+            .tint(AppColors.primary)
         }
     }
 
@@ -287,7 +332,6 @@ struct MeetingDiscussionView: View {
 
     @ViewBuilder
     private func commentRow(_ comment: MeetingComment) -> some View {
-        let isMine = comment.userId == appState.currentUser?.id
         HStack(alignment: .top, spacing: 12) {
             AvatarView(name: comment.userName, size: 36, imageURL: memberImageURL(for: comment.userId))
             VStack(alignment: .leading, spacing: 3) {
@@ -311,22 +355,6 @@ struct MeetingDiscussionView: View {
         .background(Color(.systemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .contentShape(RoundedRectangle(cornerRadius: 14))
-        .contextMenu {
-            if isMine {
-                Button {
-                    Haptic.light()
-                    commentToEdit = comment
-                } label: {
-                    Label("수정", systemImage: "pencil")
-                }
-                Button(role: .destructive) {
-                    Haptic.light()
-                    commentToDelete = comment
-                } label: {
-                    Label("삭제", systemImage: "trash")
-                }
-            }
-        }
     }
 
     // MARK: - Input bar
@@ -394,7 +422,14 @@ struct MeetingDiscussionView: View {
         } else {
             poll = nil
         }
-        comments = (try? await appState.getMeetingComments(meetingId: meeting.id)) ?? []
+        // 의견은 observeMeetingComments 스트림이 실시간으로 반영하므로 여기선 로드하지 않음.
+    }
+
+    @MainActor
+    private func observeComments() async {
+        for await latest in appState.observeMeetingComments(meetingId: meeting.id) {
+            comments = latest
+        }
     }
 
     private func syncSelectedFromPoll() {
@@ -436,7 +471,7 @@ struct MeetingDiscussionView: View {
             _ = try await appState.addMeetingComment(meetingId: meeting.id, text: text)
             inputText = ""
             inputFocused = false
-            await reload()
+            // listener가 곧 새 의견을 포함한 목록을 push → 자동 하단 스크롤도 트리거됨.
         } catch {
             appState.error = AppError.from(error)
         }
@@ -451,7 +486,6 @@ struct MeetingDiscussionView: View {
         do {
             try await appState.updateMeetingComment(meetingId: meeting.id, commentId: comment.id, text: text)
             commentToEdit = nil
-            await reload()
         } catch {
             appState.error = AppError.from(error)
         }
@@ -464,7 +498,6 @@ struct MeetingDiscussionView: View {
         do {
             try await appState.deleteMeetingComment(meetingId: meeting.id, commentId: comment.id)
             commentToDelete = nil
-            await reload()
         } catch {
             appState.error = AppError.from(error)
         }
