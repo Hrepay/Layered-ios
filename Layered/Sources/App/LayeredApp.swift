@@ -113,12 +113,17 @@ class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNUserNot
         completionHandler([.banner, .badge, .sound])
     }
 
-    // 알림 탭하고 앱으로 진입했을 때 홈 데이터 갱신.
+    // 알림 탭하고 앱으로 진입했을 때 홈 데이터 갱신 + deep-link 라우팅.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        let userInfo = response.notification.request.content.userInfo
+        if let link = DeepLink(userInfo: userInfo) {
+            DeepLinkInbox.pending = link
+            NotificationCenter.default.post(name: .deepLinkReceived, object: nil)
+        }
         NotificationCenter.default.post(name: .refreshFamilyData, object: nil)
         completionHandler()
     }

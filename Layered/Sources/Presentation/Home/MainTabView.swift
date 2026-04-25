@@ -42,6 +42,7 @@ struct MainTabView: View {
                 .tint(AppColors.primary)
                 .task {
                     await appState.loadHomeData()
+                    consumeDeepLinkInbox()
                 }
                 .onChange(of: selectedTab) { _, newTab in
                     // 홈(0) / 히스토리(1) 진입 시 최신 데이터 재조회
@@ -52,12 +53,26 @@ struct MainTabView: View {
                 .onReceive(NotificationCenter.default.publisher(for: .refreshFamilyData)) { _ in
                     Task { await appState.loadHomeData() }
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .deepLinkReceived)) { _ in
+                    consumeDeepLinkInbox()
+                }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
                         Task { await appState.loadHomeData() }
                     }
                 }
             }
+        }
+    }
+
+    /// 정적 인박스에 쌓인 deep-link을 AppState로 옮기고, 홈 탭으로 전환.
+    /// 콜드 스타트(.task)와 포그라운드 알림 탭(NotificationCenter) 양쪽에서 호출.
+    private func consumeDeepLinkInbox() {
+        guard let link = DeepLinkInbox.pending else { return }
+        DeepLinkInbox.pending = nil
+        appState.pendingDeepLink = link
+        if selectedTab != 0 {
+            selectedTab = 0
         }
     }
 }

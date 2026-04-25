@@ -322,7 +322,24 @@ struct MeetingDetailView: View {
                 Task { await reloadDetail() }
             }
         }
+        .onChange(of: appState.pendingDeepLink) { _, link in
+            consumeDeepLinkIfMatches(link)
+        }
+        .task {
+            consumeDeepLinkIfMatches(appState.pendingDeepLink)
+        }
         .swipeBack(onBack: onBack)
+    }
+
+    /// 자기 모임을 가리키는 deep-link이면 Discussion 화면으로 push.
+    /// 이미 Discussion이 떠 있으면 set이 idempotent라 추가 애니메이션 없이 그대로 유지.
+    private func consumeDeepLinkIfMatches(_ link: DeepLink?) {
+        guard case let .meetingComment(meetingId) = link,
+              meetingId == meeting.id else { return }
+        if !showDiscussion {
+            showDiscussion = true
+        }
+        appState.pendingDeepLink = nil
     }
 
     // MARK: - 단일 장소 카드 (탭 → Discussion)

@@ -38,6 +38,8 @@ final class AppState {
     var consecutiveWeeks: Int = 0
     var isLoading = false
     var error: AppError?
+    /// 푸시 탭으로 들어온 deep-link. 소비자(HomeView/MeetingDetailView)가 처리 후 nil로 비움.
+    var pendingDeepLink: DeepLink?
 
     // @Observable은 lazy를 지원하지 않으므로 nonisolated로 선언
     nonisolated private var _authRepository: AuthRepositoryProtocol?

@@ -16,6 +16,9 @@ struct HomeView: View {
     @State private var toast: ToastData?
     @State private var dismissedRecordCard = false
     @State private var meetingLinkMetadata: LPLinkMetadata?
+    /// detail을 다른 모임으로 교체할 때 dismiss → present 사이의 일시적 nil 상태에서
+    /// 새 모임을 보관해 뒀다가 dismiss 콜백 후 다시 띄움.
+    @State private var queuedDetailMeeting: Meeting?
 
     private var currentPlanner: Member? {
         guard !members.isEmpty,
@@ -118,7 +121,13 @@ struct HomeView: View {
                     }
                 }
             }
-            .fullScreenCover(item: $showMeetingDetail) { meeting in
+            .fullScreenCover(item: $showMeetingDetail, onDismiss: {
+                // detail 교체 케이스: dismiss 후 큐잉된 모임을 다시 띄움.
+                if let queued = queuedDetailMeeting {
+                    queuedDetailMeeting = nil
+                    showMeetingDetail = queued
+                }
+            }) { meeting in
                 NavigationStack {
                     MeetingDetailView(meeting: meeting, onBack: {
                         showMeetingDetail = nil
@@ -131,6 +140,12 @@ struct HomeView: View {
                     .environment(appState)
                 }
                 .errorAlert(Bindable(appState).error)
+            }
+            .onChange(of: appState.pendingDeepLink) { _, link in
+                handleDeepLink(link)
+            }
+            .task {
+                handleDeepLink(appState.pendingDeepLink)
             }
             .fullScreenCover(isPresented: $showCreateMeeting) {
                 CreateMeetingView(onBack: {
@@ -535,6 +550,47 @@ struct HomeView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 20)
         .card(highlighted: true)
+    }
+
+    // MARK: - Deep Link
+    /// 푸시로 들어온 deep-link 라우팅.
+    /// - 작성 모달이 떠 있으면 사용자 작업 보호를 위해 무시(드랍).
+    /// - 같은 모임 detail이 이미 떠 있으면 MeetingDetailView가 알아서 처리하므로 패스.
+    /// - 다른 모임 detail이면 닫고 다시 띄우는 큐잉, 없으면 바로 띄움.
+    /// - 로컬에 없는 모임이면 단건 fetch 후 띄움.
+    private func handleDeepLink(_ link: DeepLink?) {
+        guard let link else { return }
+
+        if showCreateMeeting || showCreateRecord != nil || showInvite {
+            appState.pendingDeepLink = nil
+            return
+        }
+
+        switch link {
+        case .meetingComment(let meetingId):
+            if let detail = showMeetingDetail, detail.id == meetingId {
+                return
+            }
+            Task {
+                let target = await resolveMeeting(id: meetingId)
+                guard let meeting = target else {
+                    appState.pendingDeepLink = nil
+                    return
+                }
+                if showMeetingDetail != nil {
+                    queuedDetailMeeting = meeting
+                    showMeetingDetail = nil
+                } else {
+                    showMeetingDetail = meeting
+                }
+            }
+        }
+    }
+
+    private func resolveMeeting(id: String) async -> Meeting? {
+        if let m = appState.meetings.first(where: { $0.id == id }) { return m }
+        guard let familyId = appState.currentFamily?.id else { return nil }
+        return try? await appState.meetingRepository.getMeeting(familyId: familyId, meetingId: id)
     }
 
     // MARK: - Helpers

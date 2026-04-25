@@ -263,6 +263,11 @@ export const onMeetingCommentCreated = onDocumentCreated(
           title: `${authorName}님이 의견을 남겼어요`,
           body: `${meetingContext} · ${preview}`,
         },
+        // 푸시 탭 시 iOS가 해당 모임의 의견 화면으로 deep-link.
+        data: {
+          type: "meetingComment",
+          meetingId,
+        },
       },
       "CommentNotification"
     );
@@ -442,12 +447,15 @@ async function cleanupInvalidTokens(tokens: string[]): Promise<void> {
 /**
  * 멀티캐스트 푸시를 보내고, 무효 토큰은 Firestore에서 자동 정리한다.
  * @param {string[]} tokens 대상 FCM 토큰
- * @param {object} payload notification payload (title/body 포함)
+ * @param {object} payload notification payload (title/body 포함, 선택적 data)
  * @param {string} label 로그 prefix
  */
 async function sendMulticastAndCleanup(
   tokens: string[],
-  payload: {notification: {title: string; body: string}},
+  payload: {
+    notification: {title: string; body: string};
+    data?: Record<string, string>;
+  },
   label: string
 ): Promise<void> {
   if (tokens.length === 0) return;
