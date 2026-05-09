@@ -315,7 +315,10 @@ final class AppState {
     }
 
     private func calcConsecutiveWeeks() -> Int {
-        let calendar = Calendar.current
+        // 월-일 기준 주차 (ISO 8601). 한국 로케일 기본은 일-토라 명시적으로 설정.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.firstWeekday = 2
+        calendar.minimumDaysInFirstWeek = 4
         let now = Date()
 
         // 모임 날짜에서 주 번호 추출 (과거 모임만)
@@ -328,8 +331,18 @@ final class AppState {
         guard !meetingWeeks.isEmpty else { return 0 }
 
         // 현재 주부터 과거로 연속 체크
+        // 이번 주에 아직 진행된 모임이 없으면(예: 계획만 있고 날짜가 미래) 지난 주부터 시작
         var streak = 0
         var checkDate = now
+
+        let currentKey = calendar.component(.weekOfYear, from: now) * 10000
+            + calendar.component(.yearForWeekOfYear, from: now)
+        if !meetingWeeks.contains(currentKey) {
+            guard let lastWeek = calendar.date(byAdding: .weekOfYear, value: -1, to: now) else {
+                return 0
+            }
+            checkDate = lastWeek
+        }
 
         while true {
             let week = calendar.component(.weekOfYear, from: checkDate)
