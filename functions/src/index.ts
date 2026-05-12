@@ -275,6 +275,91 @@ export const onMeetingCommentCreated = onDocumentCreated(
 );
 
 // ============================================================
+// 4b-2. 모임 후기 알림 — Firestore Trigger
+// ============================================================
+// 가족 멤버가 모임 후기를 남기면 나머지 가족에게 푸시.
+// 작성자 본인은 제외, 수정(update)은 알림 발송 대상이 아님 — onDocumentCreated만 사용.
+export const onMeetingRecordCreated = onDocumentCreated(
+  "families/{familyId}/meetings/{meetingId}/records/{recordId}",
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+
+    const recordData = snapshot.data();
+    const familyId = event.params.familyId;
+    const meetingId = event.params.meetingId;
+
+    const authorId = recordData.memberId as string | undefined;
+    const authorName =
+      (recordData.memberName as string | undefined) || "누군가";
+    const rating = (recordData.rating as number | undefined) || 0;
+    const rawComment = (recordData.comment as string | undefined) || "";
+    // FCM payload 보호: 60자 + 말줄임
+    const preview =
+      rawComment.length > 60 ? rawComment.slice(0, 60) + "…" : rawComment;
+
+    // 모임 장소 (후보 모드면 fallback)
+    let meetingContext = "이번 모임";
+    try {
+      const meetingDoc = await db
+        .collection("families").doc(familyId)
+        .collection("meetings").doc(meetingId)
+        .get();
+      const meetingData = meetingDoc.data();
+      const place = meetingData?.place as string | undefined;
+      if (place && place.length > 0) meetingContext = place;
+      else if (meetingData?.hasPoll) meetingContext = "장소 투표한 모임";
+    } catch (e) {
+      console.error("Meeting fetch failed:", e);
+    }
+
+    // 본문: "{장소} · ⭐{별점} {소감}" — 별점/소감이 없으면 자동 생략
+    const ratingPart = rating > 0 ? `⭐${rating}` : "";
+    const detailPart = [ratingPart, preview].filter(Boolean).join(" ");
+    const body = [meetingContext, detailPart].filter(Boolean).join(" · ");
+
+    // 토큰 수집 — 작성자 제외 + notifyMeetingRecord !== false
+    const membersSnap = await db
+      .collection("families").doc(familyId)
+      .collection("members").get();
+
+    const tokens: string[] = [];
+    for (const memberDoc of membersSnap.docs) {
+      if (memberDoc.id === authorId) continue;
+      const userDoc = await db
+        .collection("users").doc(memberDoc.id).get();
+      const userData = userDoc.data();
+      const fcmToken = userData?.fcmToken;
+      const notificationsEnabled =
+        userData?.notificationsEnabled !== false;
+      const notifyMeetingRecord =
+        userData?.notifyMeetingRecord !== false;
+      if (fcmToken && notificationsEnabled && notifyMeetingRecord) {
+        tokens.push(fcmToken);
+      }
+    }
+
+    if (tokens.length === 0) return;
+
+    await sendMulticastAndCleanup(
+      tokens,
+      {
+        notification: {
+          title: `${authorName}님이 후기를 남겼어요`,
+          body,
+        },
+        // 푸시 탭 시 iOS가 해당 모임의 RecordDetailView로 deep-link.
+        data: {
+          type: "meetingRecord",
+          meetingId,
+        },
+      },
+      "RecordNotification"
+    );
+  }
+);
+
+// ============================================================
 // 4c. 모임 D-Day 알림 — 매일 자정 (KST)
 // ============================================================
 // 오늘 날짜 모임이 있는 가정의 모든 멤버에게 푸시.

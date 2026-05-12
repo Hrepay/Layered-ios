@@ -2,17 +2,20 @@ import Foundation
 
 enum DeepLink: Equatable {
     case meetingComment(meetingId: String)
+    case meetingRecord(meetingId: String)
 }
 
 extension DeepLink {
-    /// FCM userInfo 포맷: { "type": "meetingComment", "meetingId": "..." }
+    /// FCM userInfo 포맷: { "type": "meetingComment" | "meetingRecord", "meetingId": "..." }
     init?(userInfo: [AnyHashable: Any]) {
         guard let type = userInfo["type"] as? String else { return nil }
+        guard let meetingId = userInfo["meetingId"] as? String,
+              !meetingId.isEmpty else { return nil }
         switch type {
         case "meetingComment":
-            guard let meetingId = userInfo["meetingId"] as? String,
-                  !meetingId.isEmpty else { return nil }
             self = .meetingComment(meetingId: meetingId)
+        case "meetingRecord":
+            self = .meetingRecord(meetingId: meetingId)
         default:
             return nil
         }

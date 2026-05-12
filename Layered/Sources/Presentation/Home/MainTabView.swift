@@ -65,14 +65,19 @@ struct MainTabView: View {
         }
     }
 
-    /// 정적 인박스에 쌓인 deep-link을 AppState로 옮기고, 홈 탭으로 전환.
+    /// 정적 인박스에 쌓인 deep-link을 AppState로 옮기고, 해당 탭으로 전환.
     /// 콜드 스타트(.task)와 포그라운드 알림 탭(NotificationCenter) 양쪽에서 호출.
     private func consumeDeepLinkInbox() {
         guard let link = DeepLinkInbox.pending else { return }
         DeepLinkInbox.pending = nil
         appState.pendingDeepLink = link
-        if selectedTab != 0 {
-            selectedTab = 0
+        let targetTab: Int
+        switch link {
+        case .meetingComment: targetTab = 0
+        case .meetingRecord: targetTab = 1
+        }
+        if selectedTab != targetTab {
+            selectedTab = targetTab
         }
     }
 }

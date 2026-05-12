@@ -162,6 +162,42 @@ struct HistoryView: View {
                 }
                 .errorAlert(Bindable(appState).error)
             }
+            .onChange(of: appState.pendingDeepLink) { _, link in
+                consumeDeepLinkIfMatches(link)
+            }
+            .task {
+                consumeDeepLinkIfMatches(appState.pendingDeepLink)
+            }
+        }
+    }
+
+    /// 후기 알림 deep-link을 받아 해당 모임의 RecordDetailView를 띄움.
+    /// MainTabView가 이미 히스토리 탭으로 전환한 상태로 들어옴.
+    private func consumeDeepLinkIfMatches(_ link: DeepLink?) {
+        guard case let .meetingRecord(meetingId) = link else { return }
+        if let meeting = meetings.first(where: { $0.id == meetingId }) {
+            if selectedMeeting?.id != meeting.id {
+                selectedMeeting = meeting
+            }
+            appState.pendingDeepLink = nil
+        } else {
+            // 로컬에 없으면 단건 fetch 후 띄움
+            Task {
+                guard let familyId = appState.currentFamily?.id,
+                      let meeting = try? await appState.meetingRepository.getMeeting(
+                          familyId: familyId,
+                          meetingId: meetingId
+                      ) else {
+                    appState.pendingDeepLink = nil
+                    return
+                }
+                await MainActor.run {
+                    if selectedMeeting?.id != meeting.id {
+                        selectedMeeting = meeting
+                    }
+                    appState.pendingDeepLink = nil
+                }
+            }
         }
     }
 

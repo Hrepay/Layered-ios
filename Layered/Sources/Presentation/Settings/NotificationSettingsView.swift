@@ -11,6 +11,7 @@ struct NotificationSettingsView: View {
     @State private var plannerReminder = true
     @State private var meetingCreated = true
     @State private var meetingComment = true
+    @State private var meetingRecord = true
     @State private var meetingDDay = true
     @State private var isLoaded = false
 
@@ -85,6 +86,10 @@ struct NotificationSettingsView: View {
                         .tint(AppColors.primary)
                         .onChange(of: meetingComment) { _, _ in save() }
 
+                    Toggle("모임 후기", isOn: $meetingRecord)
+                        .tint(AppColors.primary)
+                        .onChange(of: meetingRecord) { _, _ in save() }
+
                     Toggle("모임 당일 알림", isOn: $meetingDDay)
                         .tint(AppColors.primary)
                         .onChange(of: meetingDDay) { _, _ in save() }
@@ -101,6 +106,7 @@ struct NotificationSettingsView: View {
             plannerReminder = settings.plannerReminder
             meetingCreated = settings.meetingCreated
             meetingComment = settings.meetingComment
+            meetingRecord = settings.meetingRecord
             meetingDDay = settings.meetingDDay
             isLoaded = true
         }
@@ -121,6 +127,7 @@ struct NotificationSettingsView: View {
                     plannerReminder: plannerReminder,
                     meetingCreated: meetingCreated,
                     meetingComment: meetingComment,
+                    meetingRecord: meetingRecord,
                     meetingDDay: meetingDDay
                 )
             )

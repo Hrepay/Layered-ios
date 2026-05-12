@@ -579,6 +579,9 @@ struct HomeView: View {
                     showMeetingDetail = meeting
                 }
             }
+        case .meetingRecord:
+            // 히스토리 탭(HistoryView)이 처리하므로 홈에서는 무시
+            return
         }
     }
 
