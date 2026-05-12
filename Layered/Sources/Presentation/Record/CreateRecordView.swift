@@ -2,28 +2,58 @@ import SwiftUI
 
 struct CreateRecordView: View {
     let meeting: Meeting
+    let existingRecord: MeetingRecord?
     let onBack: () -> Void
     let onSaved: (MeetingRecord) -> Void
 
     @Environment(AppState.self) private var appState: AppState
 
-    @State private var comment = ""
-    @State private var rating = 0
-    @State private var selectedImages: [UIImage] = []
+    @State private var photos: [RecordPhotoSlot]
+    @State private var removedExistingURLs: [String] = []
+    @State private var comment: String
+    @State private var rating: Int
     @State private var animatedStar: Int? = nil
     @State private var showImagePicker = false
     @State private var isUploading = false
     @State private var showExitAlert = false
     @FocusState private var commentFocused: Bool
 
+    private var isEditMode: Bool { existingRecord != nil }
+
+    init(
+        meeting: Meeting,
+        existingRecord: MeetingRecord? = nil,
+        onBack: @escaping () -> Void,
+        onSaved: @escaping (MeetingRecord) -> Void
+    ) {
+        self.meeting = meeting
+        self.existingRecord = existingRecord
+        self.onBack = onBack
+        self.onSaved = onSaved
+        _comment = State(initialValue: existingRecord?.comment ?? "")
+        _rating = State(initialValue: existingRecord?.rating ?? 0)
+        _photos = State(initialValue: existingRecord?.photos.map { RecordPhotoSlot(content: .existing(url: $0)) } ?? [])
+    }
+
     private var hasUnsavedChanges: Bool {
-        !comment.isEmpty || rating > 0 || !selectedImages.isEmpty
+        if let existing = existingRecord {
+            let keptURLs = photos.compactMap { slot -> String? in
+                if case .existing(let url) = slot.content { return url } else { return nil }
+            }
+            let hasNewPhotos = photos.contains { if case .new = $0.content { return true } else { return false } }
+            return comment != existing.comment
+                || rating != existing.rating
+                || keptURLs != existing.photos
+                || hasNewPhotos
+        } else {
+            return !comment.isEmpty || rating > 0 || !photos.isEmpty
+        }
     }
 
     var body: some View {
         VStack(spacing: 0) {
             NavBar(
-                title: "모임 기록",
+                title: isEditMode ? "기록 수정" : "모임 기록",
                 backAction: {
                     if hasUnsavedChanges {
                         showExitAlert = true
@@ -34,41 +64,7 @@ struct CreateRecordView: View {
                 trailingText: "완료",
                 trailingAction: {
                     Haptic.medium()
-                    isUploading = true
-                    let recordId = UUID().uuidString
-                    Task {
-                        do {
-                            var photoURLs: [String] = []
-                            if let familyId = appState.currentFamily?.id {
-                                for (index, image) in selectedImages.enumerated() {
-                                    guard let data = ImageProcessor.resizeAndCompress(image) else { continue }
-                                    let url = try await appState.storageRepository.uploadRecordPhoto(
-                                        familyId: familyId,
-                                        meetingId: meeting.id,
-                                        recordId: recordId,
-                                        index: index,
-                                        imageData: data
-                                    )
-                                    photoURLs.append(url)
-                                }
-                            }
-                            let record = MeetingRecord(
-                                id: recordId,
-                                memberId: appState.currentUser?.id ?? "",
-                                memberName: appState.currentUser?.name ?? "",
-                                photos: photoURLs,
-                                comment: comment,
-                                rating: rating,
-                                createdAt: Date(),
-                                updatedAt: Date()
-                            )
-                            isUploading = false
-                            onSaved(record)
-                        } catch {
-                            isUploading = false
-                            appState.error = AppError.from(error)
-                        }
-                    }
+                    Task { await save() }
                 },
                 trailingDisabled: !isValid || isUploading
             )
@@ -104,17 +100,15 @@ struct CreateRecordView: View {
 
                         HStack(spacing: 12) {
                             ForEach(0..<3, id: \.self) { index in
-                                if index < selectedImages.count {
+                                if index < photos.count {
                                     ZStack(alignment: .topTrailing) {
-                                        Image(uiImage: selectedImages[index])
-                                            .resizable()
-                                            .scaledToFill()
+                                        photoThumbnail(for: photos[index])
                                             .frame(maxWidth: .infinity)
                                             .aspectRatio(1, contentMode: .fit)
                                             .clipShape(RoundedRectangle(cornerRadius: 12))
 
                                         Button {
-                                            selectedImages.remove(at: index)
+                                            removePhoto(at: index)
                                         } label: {
                                             Image(systemName: "xmark.circle.fill")
                                                 .font(.body)
@@ -123,7 +117,7 @@ struct CreateRecordView: View {
                                         }
                                         .padding(4)
                                     }
-                                } else if index == selectedImages.count && selectedImages.count < 3 {
+                                } else if index == photos.count && photos.count < 3 {
                                     Button {
                                         Haptic.light()
                                         showImagePicker = true
@@ -233,10 +227,13 @@ struct CreateRecordView: View {
         }
         .loadingOverlay(isUploading)
         .sheet(isPresented: $showImagePicker) {
-            MultiImagePicker(maxSelection: 3 - selectedImages.count, selectedImages: Binding(
+            MultiImagePicker(maxSelection: 3 - photos.count, selectedImages: Binding(
                 get: { [] },
                 set: { newImages in
-                    selectedImages.append(contentsOf: newImages.prefix(3 - selectedImages.count))
+                    let available = 3 - photos.count
+                    for image in newImages.prefix(available) {
+                        photos.append(RecordPhotoSlot(content: .new(image: image)))
+                    }
                 }
             ))
         }
@@ -245,6 +242,27 @@ struct CreateRecordView: View {
             Button("나가기", role: .destructive) { onBack() }
         } message: {
             Text("지금 나가면 입력한 내용이 저장되지 않습니다.")
+        }
+    }
+
+    @ViewBuilder
+    private func photoThumbnail(for slot: RecordPhotoSlot) -> some View {
+        switch slot.content {
+        case .existing(let url):
+            CachedAsyncImage(url: URL(string: url))
+                .aspectRatio(1, contentMode: .fill)
+        case .new(let image):
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+        }
+    }
+
+    private func removePhoto(at index: Int) {
+        Haptic.light()
+        let removed = photos.remove(at: index)
+        if case .existing(let url) = removed.content {
+            removedExistingURLs.append(url)
         }
     }
 
@@ -257,6 +275,124 @@ struct CreateRecordView: View {
         formatter.locale = Locale(identifier: "ko_KR")
         formatter.dateFormat = "M월 d일 (E)"
         return formatter.string(from: date)
+    }
+
+    // MARK: - Save
+    private func save() async {
+        isUploading = true
+        defer { isUploading = false }
+
+        do {
+            if let existing = existingRecord {
+                try await saveEdit(existing: existing)
+            } else {
+                try await saveCreate()
+            }
+        } catch {
+            appState.error = AppError.from(error)
+        }
+    }
+
+    private func saveCreate() async throws {
+        guard let familyId = appState.currentFamily?.id else { return }
+        let recordId = UUID().uuidString
+        var photoURLs: [String] = []
+        for (index, slot) in photos.enumerated() {
+            if case .new(let image) = slot.content,
+               let data = ImageProcessor.resizeAndCompress(image) {
+                let url = try await appState.storageRepository.uploadRecordPhoto(
+                    familyId: familyId,
+                    meetingId: meeting.id,
+                    recordId: recordId,
+                    index: index,
+                    imageData: data
+                )
+                photoURLs.append(url)
+            }
+        }
+        let record = MeetingRecord(
+            id: recordId,
+            memberId: appState.currentUser?.id ?? "",
+            memberName: appState.currentUser?.name ?? "",
+            photos: photoURLs,
+            comment: comment,
+            rating: rating,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        let created = try await appState.createRecord(meetingId: meeting.id, record: record)
+        onSaved(created)
+    }
+
+    private func saveEdit(existing: MeetingRecord) async throws {
+        guard let familyId = appState.currentFamily?.id else { return }
+
+        // 변경 사항 없으면 Firestore write 생략
+        guard hasUnsavedChanges else {
+            onSaved(existing)
+            return
+        }
+
+        // 1) 신규 사진 업로드 (인덱스 충돌 방지를 위해 타임스탬프 기반 키 사용)
+        let baseIndex = Int(Date().timeIntervalSince1970)
+        var newURLs: [String] = []
+        var newCounter = 0
+        for slot in photos {
+            if case .new(let image) = slot.content,
+               let data = ImageProcessor.resizeAndCompress(image) {
+                let url = try await appState.storageRepository.uploadRecordPhoto(
+                    familyId: familyId,
+                    meetingId: meeting.id,
+                    recordId: existing.id,
+                    index: baseIndex + newCounter,
+                    imageData: data
+                )
+                newURLs.append(url)
+                newCounter += 1
+            }
+        }
+
+        // 2) 최종 사진 URL 배열을 슬롯 순서대로 조립
+        var finalURLs: [String] = []
+        var newCursor = 0
+        for slot in photos {
+            switch slot.content {
+            case .existing(let url):
+                finalURLs.append(url)
+            case .new:
+                finalURLs.append(newURLs[newCursor])
+                newCursor += 1
+            }
+        }
+
+        // 3) Firestore 업데이트
+        let updated = MeetingRecord(
+            id: existing.id,
+            memberId: existing.memberId,
+            memberName: existing.memberName,
+            photos: finalURLs,
+            comment: comment,
+            rating: rating,
+            createdAt: existing.createdAt,
+            updatedAt: Date()
+        )
+        try await appState.updateRecord(meetingId: meeting.id, record: updated)
+
+        // 4) 제거된 기존 사진은 Storage에서 정리 (실패해도 본 작업은 성공)
+        for url in removedExistingURLs {
+            try? await appState.storageRepository.deletePhotoByURL(url)
+        }
+
+        onSaved(updated)
+    }
+}
+
+struct RecordPhotoSlot {
+    let content: Content
+
+    enum Content {
+        case existing(url: String)
+        case new(image: UIImage)
     }
 }
 

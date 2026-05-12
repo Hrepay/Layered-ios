@@ -20,6 +20,13 @@ final class FirebaseStorageRepository: StorageRepositoryProtocol {
         try await ref.delete()
     }
 
+    /// Firebase Storage 다운로드 URL로부터 참조를 구성해 삭제. firebasestorage URL만 대상.
+    func deletePhotoByURL(_ urlString: String) async throws {
+        guard urlString.contains("firebasestorage") else { return }
+        let ref = storage.reference(forURL: urlString)
+        try await ref.delete()
+    }
+
     // MARK: - Private
 
     private func uploadData(_ data: Data, path: String) async throws -> String {

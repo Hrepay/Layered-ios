@@ -11,6 +11,7 @@ struct RecordDetailView: View {
     @State private var showRecordDeleteAlert = false
     @State private var showMeetingDeleteAlert = false
     @State private var recordToDelete: MeetingRecord?
+    @State private var recordToEdit: MeetingRecord?
     @State private var showCreateRecord = false
     @State private var fullScreenImageURL: String?
     @State private var showMeetingDetail = false
@@ -119,6 +120,10 @@ struct RecordDetailView: View {
 
                                     if record.memberId == appState.currentUser?.id {
                                         Menu {
+                                            Button("수정", systemImage: "pencil") {
+                                                Haptic.light()
+                                                recordToEdit = record
+                                            }
                                             Button("삭제", systemImage: "trash.fill", role: .destructive) {
                                                 recordToDelete = record
                                                 showRecordDeleteAlert = true
@@ -205,17 +210,22 @@ struct RecordDetailView: View {
         .fullScreenCover(isPresented: $showCreateRecord) {
             CreateRecordView(meeting: meeting, onBack: {
                 showCreateRecord = false
-            }, onSaved: { record in
+            }, onSaved: { _ in
                 showCreateRecord = false
-                Task {
-                    do {
-                        _ = try await appState.createRecord(meetingId: meeting.id, record: record)
-                        await loadRecords()
-                    } catch {
-                        appState.error = AppError.from(error)
-                    }
-                }
+                Task { await loadRecords() }
             })
+            .environment(appState)
+        }
+        .fullScreenCover(item: $recordToEdit) { record in
+            CreateRecordView(
+                meeting: meeting,
+                existingRecord: record,
+                onBack: { recordToEdit = nil },
+                onSaved: { _ in
+                    recordToEdit = nil
+                    Task { await loadRecords() }
+                }
+            )
             .environment(appState)
         }
         .alert("기록 삭제", isPresented: $showRecordDeleteAlert) {

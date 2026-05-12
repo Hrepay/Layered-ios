@@ -10,4 +10,6 @@ final class MockStorageRepository: StorageRepositoryProtocol {
     }
 
     func deleteImage(path: String) async throws {}
+
+    func deletePhotoByURL(_ urlString: String) async throws {}
 }

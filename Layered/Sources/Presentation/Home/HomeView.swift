@@ -168,16 +168,11 @@ struct HomeView: View {
             .fullScreenCover(item: $showCreateRecord) { meeting in
                 CreateRecordView(meeting: meeting, onBack: {
                     showCreateRecord = nil
-                }, onSaved: { record in
+                }, onSaved: { _ in
                     showCreateRecord = nil
                     Task {
-                        do {
-                            _ = try await appState.createRecord(meetingId: meeting.id, record: record)
-                            await appState.checkMyRecords()
-                            toast = ToastData(type: .success, message: "기록이 저장되었습니다")
-                        } catch {
-                            appState.error = AppError.from(error)
-                        }
+                        await appState.checkMyRecords()
+                        toast = ToastData(type: .success, message: "기록이 저장되었습니다")
                     }
                 })
                 .environment(appState)
