@@ -24,6 +24,9 @@ let project = Project(
                         "UIImageName": "",
                     ],
                     "NSPhotoLibraryAddUsageDescription": "모임 기록에 첨부된 사진을 사진첩에 저장하려면 접근 권한이 필요합니다. 가족이 함께한 순간을 원본 그대로 기기에 보관할 수 있어요.",
+                    // HTTPS/TLS 등 표준(면제 대상) 암호화만 사용 → 수출 규정 준수
+                    // 정보 누락 프롬프트 제거(App Store Connect 매 업로드마다 묻는 것 방지).
+                    "ITSAppUsesNonExemptEncryption": false,
                     "UISupportedInterfaceOrientations": [
                         "UIInterfaceOrientationPortrait",
                     ],
