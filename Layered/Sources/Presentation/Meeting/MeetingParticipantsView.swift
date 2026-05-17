@@ -396,7 +396,7 @@ struct MeetingParticipantsView: View {
             try await appState.setMyAttendance(meetingId: meeting.id, status: next)
             syncFromAppState()
         } catch {
-            appState.error = AppError.from(error)
+            showToast(AppError.from(error).message)
         }
     }
 
@@ -408,7 +408,7 @@ struct MeetingParticipantsView: View {
             try await appState.setAttendance(meetingId: meeting.id, memberId: member.id, status: status)
             syncFromAppState()
         } catch {
-            appState.error = AppError.from(error)
+            showToast(AppError.from(error).message)
         }
     }
 
@@ -426,7 +426,7 @@ struct MeetingParticipantsView: View {
             nudgedIds.insert(member.id)
             showToast("\(member.name)님을 콕 찔렀어요")
         } catch {
-            appState.error = AppError.from(error)
+            showToast(AppError.from(error).message)
         }
     }
 
@@ -451,7 +451,7 @@ struct MeetingParticipantsView: View {
             try await appState.setMeetingParticipants(meetingId: meeting.id, participantIds: ids)
             syncFromAppState()
         } catch {
-            appState.error = AppError.from(error)
+            showToast(AppError.from(error).message)
         }
     }
 
@@ -464,7 +464,7 @@ struct MeetingParticipantsView: View {
             try await appState.setMeetingParticipants(meetingId: meeting.id, participantIds: ids)
             syncFromAppState()
         } catch {
-            appState.error = AppError.from(error)
+            showToast(AppError.from(error).message)
         }
     }
 }

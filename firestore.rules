@@ -84,6 +84,16 @@ service cloud.firestore {
           allow delete: if isMemberOf(familyId)
             && resource.data.userId == request.auth.uid;
         }
+
+        // 콕 찌르기: 멤버가 생성하되 보낸이는 본인이어야 함(스푸핑 방지).
+        // 읽기·삭제는 모임 삭제 cascade 위해 멤버 허용, 생성된 기록은 수정 불가.
+        match /nudges/{nudgeId} {
+          allow read: if isMemberOf(familyId);
+          allow create: if isMemberOf(familyId)
+            && request.resource.data.fromUserId == request.auth.uid;
+          allow update: if false;
+          allow delete: if isMemberOf(familyId);
+        }
       }
     }
 
