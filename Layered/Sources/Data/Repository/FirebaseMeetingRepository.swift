@@ -22,6 +22,8 @@ final class FirebaseMeetingRepository: MeetingRepositoryProtocol {
             "activity": meeting.activity as Any,
             "status": meeting.status.rawValue,
             "hasPoll": meeting.hasPoll,
+            "participantIds": meeting.participantIds,
+            "attendance": meeting.attendance.mapValues { $0.rawValue },
             "createdAt": Timestamp(date: Date()),
             "updatedAt": Timestamp(date: Date()),
         ]
@@ -72,6 +74,7 @@ final class FirebaseMeetingRepository: MeetingRepositoryProtocol {
             "activity": meeting.activity as Any,
             "status": meeting.status.rawValue,
             "hasPoll": meeting.hasPoll,
+            "participantIds": meeting.participantIds,
             "updatedAt": Timestamp(date: Date()),
         ])
     }
@@ -91,6 +94,12 @@ final class FirebaseMeetingRepository: MeetingRepositoryProtocol {
             try? await commentDoc.reference.delete()
         }
 
+        // 2-1. nudges 서브컬렉션 (콕 찌르기 트리거 기록)
+        let nudgesSnapshot = try await meetingRef.collection("nudges").getDocuments()
+        for nudgeDoc in nudgesSnapshot.documents {
+            try? await nudgeDoc.reference.delete()
+        }
+
         // 3. records 서브컬렉션 — 사진 URL까지 전부 Storage에서 삭제 후 문서 삭제
         let recordsSnapshot = try await meetingRef.collection("records").getDocuments()
         for recordDoc in recordsSnapshot.documents {
@@ -104,6 +113,50 @@ final class FirebaseMeetingRepository: MeetingRepositoryProtocol {
 
         // 4. meeting 문서 자체 삭제
         try await meetingRef.delete()
+    }
+
+    // MARK: - 참석 / 참여자 / 콕 찌르기
+
+    func setAttendance(familyId: String, meetingId: String, memberId: String, status: Meeting.AttendanceStatus?, participantIds: [String]) async throws {
+        var update: [String: Any] = [
+            "updatedAt": Timestamp(date: Date()),
+        ]
+        // 점경로 부분 업데이트라 다른 멤버 상태/모임 필드와 충돌하지 않음.
+        update["attendance.\(memberId)"] = status?.rawValue ?? FieldValue.delete()
+        // 명단이 비어 있던 레거시 모임이면 이번 기회에 전원으로 명시화.
+        if !participantIds.isEmpty {
+            update["participantIds"] = participantIds
+        }
+        try await meetingsRef(familyId: familyId).document(meetingId).updateData(update)
+    }
+
+    func setParticipants(familyId: String, meetingId: String, participantIds: [String]) async throws {
+        let docRef = meetingsRef(familyId: familyId).document(meetingId)
+        let snapshot = try await docRef.getDocument()
+        let attendance = snapshot.data()?["attendance"] as? [String: String] ?? [:]
+        // 명단에서 빠진 멤버의 참석 기록은 정리.
+        let removed = Set(attendance.keys).subtracting(participantIds)
+        var update: [String: Any] = [
+            "participantIds": participantIds,
+            "updatedAt": Timestamp(date: Date()),
+        ]
+        for memberId in removed {
+            update["attendance.\(memberId)"] = FieldValue.delete()
+        }
+        try await docRef.updateData(update)
+    }
+
+    func sendNudge(familyId: String, meetingId: String, fromUserId: String, fromName: String, targetUserId: String) async throws {
+        let docRef = meetingsRef(familyId: familyId)
+            .document(meetingId)
+            .collection("nudges")
+            .document()
+        try await docRef.setData([
+            "fromUserId": fromUserId,
+            "fromName": fromName,
+            "targetUserId": targetUserId,
+            "createdAt": Timestamp(date: Date()),
+        ])
     }
 
     // MARK: - 모임 의견
@@ -219,6 +272,9 @@ final class FirebaseMeetingRepository: MeetingRepositoryProtocol {
             activity: data["activity"] as? String,
             status: Meeting.Status(rawValue: data["status"] as? String ?? "planning") ?? .planning,
             hasPoll: data["hasPoll"] as? Bool ?? false,
+            participantIds: data["participantIds"] as? [String] ?? [],
+            attendance: (data["attendance"] as? [String: String] ?? [:])
+                .compactMapValues { Meeting.AttendanceStatus(rawValue: $0) },
             createdAt: (data["createdAt"] as? Timestamp)?.dateValue() ?? Date(),
             updatedAt: (data["updatedAt"] as? Timestamp)?.dateValue() ?? Date()
         )

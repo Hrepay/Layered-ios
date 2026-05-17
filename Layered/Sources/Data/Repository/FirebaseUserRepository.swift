@@ -44,7 +44,8 @@ final class FirebaseUserRepository: UserRepositoryProtocol {
             meetingCreated: data["notifyMeetingCreated"] as? Bool ?? true,
             meetingComment: data["notifyMeetingComment"] as? Bool ?? true,
             meetingRecord: data["notifyMeetingRecord"] as? Bool ?? true,
-            meetingDDay: data["notifyMeetingDDay"] as? Bool ?? true
+            meetingDDay: data["notifyMeetingDDay"] as? Bool ?? true,
+            nudge: data["notifyNudge"] as? Bool ?? true
         )
     }
 
@@ -56,6 +57,7 @@ final class FirebaseUserRepository: UserRepositoryProtocol {
             "notifyMeetingComment": settings.meetingComment,
             "notifyMeetingRecord": settings.meetingRecord,
             "notifyMeetingDDay": settings.meetingDDay,
+            "notifyNudge": settings.nudge,
         ])
     }
 

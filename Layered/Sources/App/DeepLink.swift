@@ -3,6 +3,7 @@ import Foundation
 enum DeepLink: Equatable {
     case meetingComment(meetingId: String)
     case meetingRecord(meetingId: String)
+    case meetingAttendance(meetingId: String)
 }
 
 extension DeepLink {
@@ -16,6 +17,8 @@ extension DeepLink {
             self = .meetingComment(meetingId: meetingId)
         case "meetingRecord":
             self = .meetingRecord(meetingId: meetingId)
+        case "meetingAttendance":
+            self = .meetingAttendance(meetingId: meetingId)
         default:
             return nil
         }

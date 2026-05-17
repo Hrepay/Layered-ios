@@ -36,6 +36,34 @@ struct MeetingDetailView: View {
         meeting.plannerId == appState.currentUser?.id
     }
 
+    private var participantMembers: [Member] {
+        let ids = meeting.effectiveParticipantIds(allMemberIds: appState.members.map(\.id))
+        return appState.members.filter { ids.contains($0.id) }
+    }
+
+    private var attendanceSummaryText: String {
+        let members = participantMembers
+        let going = members.filter { meeting.attendanceStatus(for: $0.id) == .going }.count
+        let notGoing = members.filter { meeting.attendanceStatus(for: $0.id) == .notGoing }.count
+        let pending = members.count - going - notGoing
+        return "확정 \(going) · 미정 \(pending) · 불참 \(notGoing)"
+    }
+
+    private func attendanceColor(for member: Member) -> Color {
+        switch meeting.attendanceStatus(for: member.id) {
+        case .going: return AppColors.secondary
+        case .notGoing: return Color.red
+        case nil: return AppColors.warning
+        }
+    }
+
+    private func attendanceDot(for member: Member) -> some View {
+        Circle()
+            .fill(attendanceColor(for: member))
+            .frame(width: 11, height: 11)
+            .overlay(Circle().stroke(.white, lineWidth: 2))
+    }
+
     private var actionMenu: AnyView? {
         guard showsActionMenu else { return nil }
         return AnyView(
@@ -167,24 +195,30 @@ struct MeetingDetailView: View {
                     }
 
                     // MARK: - 참여 인원
-                    let members = appState.members
-                    if !members.isEmpty {
+                    let participants = participantMembers
+                    if !participants.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
-                                Text("참여 인원 (\(members.count)명)")
+                                Text("참여 인원 (\(participants.count)명)")
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
                                     .foregroundStyle(.primary)
                                 Spacer()
+                                Text(attendanceSummaryText)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
 
                             HStack(spacing: -8) {
-                                ForEach(members.prefix(5)) { member in
+                                ForEach(participants.prefix(5)) { member in
                                     AvatarView(name: member.name, size: 36, imageURL: member.profileImageURL)
                                         .overlay(Circle().stroke(.white, lineWidth: 2))
+                                        .overlay(alignment: .bottomTrailing) {
+                                            attendanceDot(for: member)
+                                        }
                                 }
-                                if members.count > 5 {
-                                    Text("+\(members.count - 5)")
+                                if participants.count > 5 {
+                                    Text("+\(participants.count - 5)")
                                         .font(.caption2)
                                         .fontWeight(.semibold)
                                         .foregroundStyle(.secondary)
@@ -313,7 +347,7 @@ struct MeetingDetailView: View {
             addCandidateSheet
         }
         .fullScreenCover(isPresented: $showParticipants) {
-            MeetingParticipantsView(onBack: { showParticipants = false })
+            MeetingParticipantsView(meeting: $meeting, onBack: { showParticipants = false })
                 .environment(appState)
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -334,12 +368,21 @@ struct MeetingDetailView: View {
     /// 자기 모임을 가리키는 deep-link이면 Discussion 화면으로 push.
     /// 이미 Discussion이 떠 있으면 set이 idempotent라 추가 애니메이션 없이 그대로 유지.
     private func consumeDeepLinkIfMatches(_ link: DeepLink?) {
-        guard case let .meetingComment(meetingId) = link,
-              meetingId == meeting.id else { return }
-        if !showDiscussion {
-            showDiscussion = true
+        switch link {
+        case let .meetingComment(meetingId) where meetingId == meeting.id:
+            if !showDiscussion {
+                showDiscussion = true
+            }
+            appState.pendingDeepLink = nil
+        case let .meetingAttendance(meetingId) where meetingId == meeting.id:
+            // 콕 찌르기 푸시 → 참석 토글이 있는 참여 인원 화면을 바로 연다.
+            if !showParticipants {
+                showParticipants = true
+            }
+            appState.pendingDeepLink = nil
+        default:
+            return
         }
-        appState.pendingDeepLink = nil
     }
 
     // MARK: - 단일 장소 카드 (탭 → Discussion)

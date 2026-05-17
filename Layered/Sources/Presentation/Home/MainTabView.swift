@@ -73,7 +73,7 @@ struct MainTabView: View {
         appState.pendingDeepLink = link
         let targetTab: Int
         switch link {
-        case .meetingComment: targetTab = 0
+        case .meetingComment, .meetingAttendance: targetTab = 0
         case .meetingRecord: targetTab = 1
         }
         if selectedTab != targetTab {

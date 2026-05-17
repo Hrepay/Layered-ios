@@ -7,6 +7,7 @@ struct NotificationSettings: Equatable {
     var meetingComment: Bool = true
     var meetingRecord: Bool = true
     var meetingDDay: Bool = true
+    var nudge: Bool = true
 }
 
 protocol UserRepositoryProtocol {

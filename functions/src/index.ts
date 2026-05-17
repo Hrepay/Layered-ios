@@ -452,6 +452,101 @@ export const remindMeetingDDay = onSchedule(
 );
 
 // ============================================================
+// 4d. 콕 찌르기 알림 — Firestore Trigger
+// ============================================================
+// 참석 미정인 멤버를 누군가 "콕 찌르면" nudges 문서가 생기고,
+// 대상 멤버에게만 푸시. 푸시 탭 시 해당 모임 상세로 deep-link.
+export const onNudgeCreated = onDocumentCreated(
+  "families/{familyId}/meetings/{meetingId}/nudges/{nudgeId}",
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+
+    const nudge = snapshot.data();
+    const familyId = event.params.familyId;
+    const meetingId = event.params.meetingId;
+
+    const targetUserId = nudge.targetUserId as string | undefined;
+    const fromName = (nudge.fromName as string | undefined) || "누군가";
+    if (!targetUserId) return;
+
+    // 3시간 쿨다운: 같은 모임·같은 대상에 최근 3시간 내 찌른 적이 있으면
+    // 푸시 스킵. 연타나 여러 가족의 중복 찌르기로 인한 알림 폭탄 방지.
+    // (equality-only 쿼리라 단일 필드 인덱스로 충분 — 복합 인덱스 불필요)
+    const COOLDOWN_MS = 3 * 60 * 60 * 1000;
+    const nudgeId = event.params.nudgeId;
+    const createdAtMs =
+      (nudge.createdAt as Timestamp | undefined)?.toMillis() ?? Date.now();
+    const priorSnap = await db
+      .collection("families").doc(familyId)
+      .collection("meetings").doc(meetingId)
+      .collection("nudges")
+      .where("targetUserId", "==", targetUserId)
+      .get();
+    const hasRecent = priorSnap.docs.some((d) => {
+      if (d.id === nudgeId) return false;
+      const t =
+        (d.data().createdAt as Timestamp | undefined)?.toMillis() ?? 0;
+      return t >= createdAtMs - COOLDOWN_MS;
+    });
+    if (hasRecent) {
+      console.log(
+        `Nudge cooldown: skip ${targetUserId} ` +
+        `in ${familyId}/${meetingId} (within 3h)`
+      );
+      return;
+    }
+
+    const userDoc = await db
+      .collection("users").doc(targetUserId).get();
+    const userData = userDoc.data();
+    const fcmToken = userData?.fcmToken;
+    const notificationsEnabled =
+      userData?.notificationsEnabled !== false;
+    const notifyNudge =
+      userData?.notifyNudge !== false;
+    if (!fcmToken || !notificationsEnabled || !notifyNudge) return;
+
+    // 모임 장소 (후보 모드면 fallback)
+    let meetingContext = "이번 모임";
+    try {
+      const meetingDoc = await db
+        .collection("families").doc(familyId)
+        .collection("meetings").doc(meetingId)
+        .get();
+      const place = meetingDoc.data()?.place as string | undefined;
+      if (place && place.length > 0) meetingContext = place;
+      else if (meetingDoc.data()?.hasPoll) {
+        meetingContext = "장소 투표 중인 모임";
+      }
+    } catch (e) {
+      console.error("Meeting fetch failed:", e);
+    }
+
+    try {
+      await getMessaging().send({
+        notification: {
+          title: `${fromName}님이 콕 찔렀어요`,
+          body: `${meetingContext} 참석 여부를 알려주세요.`,
+        },
+        data: {
+          type: "meetingAttendance",
+          meetingId,
+        },
+        token: fcmToken,
+      });
+      console.log(`Nudge: ${targetUserId} in ${familyId}/${meetingId}`);
+    } catch (error) {
+      const code = (error as {code?: string})?.code;
+      console.error(`Nudge error (${targetUserId}): code=${code}`, error);
+      if (code && STALE_TOKEN_CODES.has(code)) {
+        await cleanupInvalidTokens([fcmToken]);
+      }
+    }
+  }
+);
+
+// ============================================================
 // 5. 고아 가정 정리 — 매주 월요일 새벽 3시 (KST)
 // ============================================================
 // 멤버 0명이거나, 모든 멤버의 users 문서가 사라진 가정은

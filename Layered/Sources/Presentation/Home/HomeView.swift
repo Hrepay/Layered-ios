@@ -562,7 +562,7 @@ struct HomeView: View {
         }
 
         switch link {
-        case .meetingComment(let meetingId):
+        case .meetingComment(let meetingId), .meetingAttendance(let meetingId):
             if let detail = showMeetingDetail, detail.id == meetingId {
                 return
             }

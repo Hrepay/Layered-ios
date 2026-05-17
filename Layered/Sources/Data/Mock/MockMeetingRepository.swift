@@ -17,6 +17,12 @@ final class MockMeetingRepository: MeetingRepositoryProtocol {
 
     func deleteMeeting(familyId: String, meetingId: String) async throws {}
 
+    func setAttendance(familyId: String, meetingId: String, memberId: String, status: Meeting.AttendanceStatus?, participantIds: [String]) async throws {}
+
+    func setParticipants(familyId: String, meetingId: String, participantIds: [String]) async throws {}
+
+    func sendNudge(familyId: String, meetingId: String, fromUserId: String, fromName: String, targetUserId: String) async throws {}
+
     func getComments(familyId: String, meetingId: String) async throws -> [MeetingComment] { [] }
 
     func observeComments(familyId: String, meetingId: String) -> AsyncStream<[MeetingComment]> {

@@ -90,6 +90,7 @@ struct CreateMeetingView: View {
                         activity: finalActivity,
                         status: .planning,
                         hasPoll: hasPoll,
+                        participantIds: appState.members.map(\.id),
                         createdAt: Date(),
                         updatedAt: Date()
                     )

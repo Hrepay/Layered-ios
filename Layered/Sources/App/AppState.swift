@@ -420,6 +420,51 @@ final class AppState {
         await refreshMeetings()
     }
 
+    // MARK: - 참석 / 참여자 / 콕 찌르기
+
+    /// 특정 멤버의 참석 상태 변경(본인/대신 설정 공용). status가 nil이면 미정으로.
+    /// 명단이 비어 있던 레거시 모임이면 이번에 가족 전원으로 명시화.
+    func setAttendance(meetingId: String, memberId: String, status: Meeting.AttendanceStatus?) async throws {
+        guard let familyId = currentFamily?.id else { throw AppStateError.noFamily }
+        guard let meeting = meetings.first(where: { $0.id == meetingId }) else { return }
+        try await meetingRepository.setAttendance(
+            familyId: familyId,
+            meetingId: meetingId,
+            memberId: memberId,
+            status: status,
+            participantIds: meeting.participantIds.isEmpty ? members.map(\.id) : []
+        )
+        await refreshMeetings()
+    }
+
+    /// 현재 사용자의 참석 상태 변경.
+    func setMyAttendance(meetingId: String, status: Meeting.AttendanceStatus?) async throws {
+        guard let userId = currentUser?.id else { return }
+        try await setAttendance(meetingId: meetingId, memberId: userId, status: status)
+    }
+
+    func setMeetingParticipants(meetingId: String, participantIds: [String]) async throws {
+        guard let familyId = currentFamily?.id else { throw AppStateError.noFamily }
+        try await meetingRepository.setParticipants(
+            familyId: familyId,
+            meetingId: meetingId,
+            participantIds: participantIds
+        )
+        await refreshMeetings()
+    }
+
+    func sendNudge(meetingId: String, targetUserId: String) async throws {
+        guard let familyId = currentFamily?.id else { throw AppStateError.noFamily }
+        guard let user = currentUser else { return }
+        try await meetingRepository.sendNudge(
+            familyId: familyId,
+            meetingId: meetingId,
+            fromUserId: user.id,
+            fromName: user.name,
+            targetUserId: targetUserId
+        )
+    }
+
     // MARK: - 투표 CRUD
     func createPoll(meetingId: String, poll: Poll) async throws -> Poll {
         guard let familyId = currentFamily?.id else { throw AppStateError.noFamily }

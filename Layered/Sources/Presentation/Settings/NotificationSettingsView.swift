@@ -13,6 +13,7 @@ struct NotificationSettingsView: View {
     @State private var meetingComment = true
     @State private var meetingRecord = true
     @State private var meetingDDay = true
+    @State private var nudge = true
     @State private var isLoaded = false
 
     private var masterEnabled: Bool {
@@ -93,6 +94,10 @@ struct NotificationSettingsView: View {
                     Toggle("모임 당일 알림", isOn: $meetingDDay)
                         .tint(AppColors.primary)
                         .onChange(of: meetingDDay) { _, _ in save() }
+
+                    Toggle("콕 찌르기", isOn: $nudge)
+                        .tint(AppColors.primary)
+                        .onChange(of: nudge) { _, _ in save() }
                 }
                 .disabled(!masterEnabled)
             }
@@ -108,6 +113,7 @@ struct NotificationSettingsView: View {
             meetingComment = settings.meetingComment
             meetingRecord = settings.meetingRecord
             meetingDDay = settings.meetingDDay
+            nudge = settings.nudge
             isLoaded = true
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -128,7 +134,8 @@ struct NotificationSettingsView: View {
                     meetingCreated: meetingCreated,
                     meetingComment: meetingComment,
                     meetingRecord: meetingRecord,
-                    meetingDDay: meetingDDay
+                    meetingDDay: meetingDDay,
+                    nudge: nudge
                 )
             )
         }
