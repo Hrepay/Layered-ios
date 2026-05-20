@@ -204,74 +204,76 @@ struct MeetingDiscussionView: View {
         let isSelected = selectedOptions.contains(option.id)
         let isWinner = hasVoted && option.voteCount == maxVotes && maxVotes > 0
         let isBusy = votingOptionId == option.id
+        let linkURL = option.linkURL.flatMap(URL.init(string:))
 
-        Button {
-            Haptic.light()
-            Task { await toggleVote(optionId: option.id) }
-        } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                // 상단: 제목 + (오른쪽 끝) 링크
-                HStack(spacing: 8) {
-                    Text(option.title)
-                        .font(.body)
-                        .fontWeight(isWinner ? .bold : .medium)
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    if let urlString = option.linkURL,
-                       let url = URL(string: urlString) {
-                        Link(destination: url) {
-                            Image(systemName: "link")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(AppColors.primary)
-                                .frame(width: 28, height: 28)
-                                .background(Circle().fill(AppColors.primarySubtle))
-                        }
-                    }
-                }
-
-                // 하단: 바 + 표수 (투표 후) 또는 진행 스피너
-                HStack(spacing: 10) {
-                    if hasVoted {
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                RoundedRectangle(cornerRadius: 4)
-                                    .fill(Color(.systemGray5))
-                                    .frame(height: 6)
-                                RoundedRectangle(cornerRadius: 4)
-                                    .fill(isWinner ? AppColors.primary : Color(.systemGray3))
-                                    .frame(
-                                        width: totalVotes > 0
-                                            ? geo.size.width * CGFloat(option.voteCount) / CGFloat(totalVotes)
-                                            : 0,
-                                        height: 6
-                                    )
-                            }
-                        }
-                        .frame(height: 6)
-
-                        Text("\(option.voteCount)표")
-                            .font(.subheadline)
+        // Button 대신 onTapGesture를 사용. SwiftUI에서 자식 Link의 제스처가
+        // 부모 onTapGesture보다 우선 처리되므로, 링크 버튼만 정확히 탭하면
+        // 투표가 트리거되지 않는다.
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(option.title)
+                    .font(.body)
+                    .fontWeight(isWinner ? .bold : .medium)
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                if let url = linkURL {
+                    Link(destination: url) {
+                        Image(systemName: "link")
+                            .font(.caption)
                             .fontWeight(.semibold)
-                            .foregroundStyle(isWinner ? AppColors.primary : .secondary)
-                    } else if isBusy {
-                        Spacer()
-                        ProgressView().scaleEffect(0.7)
+                            .foregroundStyle(AppColors.primary)
+                            .frame(width: 28, height: 28)
+                            .background(Circle().fill(AppColors.primarySubtle))
                     }
+                    .buttonStyle(.plain)
                 }
             }
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(isSelected ? AppColors.primarySubtle : Color(.systemBackground))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(isSelected ? AppColors.primary : Color(.systemGray5), lineWidth: isSelected ? 1.5 : 1)
-            )
+
+            // 하단: 바 + 표수 (투표 후) 또는 진행 스피너
+            HStack(spacing: 10) {
+                if hasVoted {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color(.systemGray5))
+                                .frame(height: 6)
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(isWinner ? AppColors.primary : Color(.systemGray3))
+                                .frame(
+                                    width: totalVotes > 0
+                                        ? geo.size.width * CGFloat(option.voteCount) / CGFloat(totalVotes)
+                                        : 0,
+                                    height: 6
+                                )
+                        }
+                    }
+                    .frame(height: 6)
+
+                    Text("\(option.voteCount)표")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(isWinner ? AppColors.primary : .secondary)
+                } else if isBusy {
+                    Spacer()
+                    ProgressView().scaleEffect(0.7)
+                }
+            }
         }
-        .buttonStyle(.plain)
-        .disabled(votingOptionId != nil)
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(isSelected ? AppColors.primarySubtle : Color(.systemBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(isSelected ? AppColors.primary : Color(.systemGray5), lineWidth: isSelected ? 1.5 : 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 16))
+        .onTapGesture {
+            guard votingOptionId == nil else { return }
+            Haptic.light()
+            Task { await toggleVote(optionId: option.id) }
+        }
     }
 
     // MARK: - Comments section
