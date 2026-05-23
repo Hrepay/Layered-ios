@@ -30,7 +30,6 @@ let project = Project(
                     "UISupportedInterfaceOrientations": [
                         "UIInterfaceOrientationPortrait",
                     ],
-                    "ITSAppUsesNonExemptEncryption": false,
                 ]
             ),
             sources: [
