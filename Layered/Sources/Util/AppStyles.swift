@@ -34,16 +34,28 @@ struct SecondaryButtonStyle: ButtonStyle {
 }
 
 // MARK: - 카드 스타일
+/// iOS 26+에서는 모든 `.card()`가 자동으로 Liquid Glass로 업그레이드.
+/// 그 이하 버전은 기존 secondarySystemBackground 폴백.
 struct CardModifier: ViewModifier {
     var highlighted: Bool = false
 
+    @ViewBuilder
     func body(content: Content) -> some View {
-        content
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(highlighted ? AppColors.primarySubtle : Color(.secondarySystemBackground))
-            )
+        if #available(iOS 26.0, *) {
+            content
+                .padding(16)
+                .glassEffect(
+                    .regular.tint(highlighted ? AppColors.primarySubtle : Color.clear),
+                    in: RoundedRectangle(cornerRadius: 20)
+                )
+        } else {
+            content
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(highlighted ? AppColors.primarySubtle : Color(.secondarySystemBackground))
+                )
+        }
     }
 }
 
@@ -242,6 +254,25 @@ enum Haptic {
                 success()
             }
         default: light()
+        }
+    }
+}
+
+// MARK: - 그룹 카드 배경 (List-like)
+/// 설정 그룹처럼 내부에 padding 없는 컨테이너에 단일 라운드 배경만 깔고 싶을 때.
+/// `.card()`는 padding(16)이 내장되어 List-style 행들과 충돌하므로 분리.
+extension View {
+    @ViewBuilder
+    func glassGroupedBackground(cornerRadius: CGFloat = 20) -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(
+                .regular.tint(Color.clear),
+                in: RoundedRectangle(cornerRadius: cornerRadius)
+            )
+        } else {
+            self
+                .background(Color(.secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         }
     }
 }
