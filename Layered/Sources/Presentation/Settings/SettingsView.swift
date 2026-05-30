@@ -20,6 +20,14 @@ struct SettingsView: View {
         return "v\(bundleVersion)"
     }
 
+    /// 현재 사용자가 가족에 합류한 지 며칠 됐는지. 본인 멤버 객체가 없거나 미가입이면 nil.
+    private var daysWithFamily: Int? {
+        guard let userId = appState.currentUser?.id,
+              let me = appState.members.first(where: { $0.id == userId }) else { return nil }
+        let days = Calendar.current.dateComponents([.day], from: me.joinedAt, to: Date()).day ?? 0
+        return max(days, 1) // 같은 날 합류해도 "1일째"로 표현
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
@@ -57,6 +65,19 @@ struct SettingsView: View {
                 }
                 .padding(.top, 20)
 
+                // MARK: - 함께한 지 N일째 (가운데 정렬, 가벼운 라인)
+                if let daysWithFamily {
+                    HStack(spacing: 6) {
+                        Image(systemName: "heart.fill")
+                            .font(.caption2)
+                            .foregroundStyle(AppColors.primary)
+                        Text("겹겹과 함께한 지 \(daysWithFamily)일째")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+
                 // MARK: - 상단 2열 카드
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 6) {
@@ -73,10 +94,9 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(20)
-                    .background(Color(.secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .card()
 
+                    // 플래너 카드만 정체성 컬러 유지(피치 배경 + 흰 글씨) — 글래스 X
                     VStack(alignment: .leading, spacing: 6) {
                         Text("THIS WEEK")
                             .font(.caption).fontWeight(.bold)
@@ -105,7 +125,11 @@ struct SettingsView: View {
                         .padding(.leading, 4)
 
                     VStack(spacing: 0) {
-                        groupedRow(icon: "person.crop.circle.fill", title: "구성원 목록") { showMemberList = true }
+                        groupedRow(
+                            icon: "person.crop.circle.fill",
+                            title: "구성원 목록",
+                            accessory: { AnyView(memberAvatarStack) }
+                        ) { showMemberList = true }
                         Divider().padding(.leading, 66)
                         groupedRow(icon: "person.badge.plus.fill", title: "초대하기") { showInvite = true }
                         Divider().padding(.leading, 66)
@@ -113,8 +137,7 @@ struct SettingsView: View {
                         Divider().padding(.leading, 66)
                         groupedRow(icon: "house.fill", title: "가정 관리") { showFamilyManagement = true }
                     }
-                    .background(Color(.secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .glassGroupedBackground()
                 }
 
                 // MARK: - 앱 설정 (그룹 카드)
@@ -130,8 +153,7 @@ struct SettingsView: View {
                         Divider().padding(.leading, 66)
                         groupedRow(icon: "info.circle.fill", title: "버전 정보", trailing: displayedVersion) {}
                     }
-                    .background(Color(.secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .glassGroupedBackground()
                 }
 
                 // MARK: - 약관 및 정책
@@ -155,8 +177,7 @@ struct SettingsView: View {
                             legalURL = AppConstants.Legal.marketingURL
                         }
                     }
-                    .background(Color(.secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .glassGroupedBackground()
                 }
 
                 // MARK: - 계정 관리
@@ -217,7 +238,13 @@ struct SettingsView: View {
         }
     }
 
-    private func groupedRow(icon: String, title: String, trailing: String? = nil, action: @escaping () -> Void) -> some View {
+    private func groupedRow(
+        icon: String,
+        title: String,
+        trailing: String? = nil,
+        accessory: (() -> AnyView)? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
         Button {
             Haptic.light()
             action()
@@ -236,6 +263,7 @@ struct SettingsView: View {
 
                 Spacer()
 
+                if let accessory { accessory() }
                 if let trailing {
                     Text(trailing).font(.caption).foregroundStyle(.secondary)
                 }
@@ -246,6 +274,26 @@ struct SettingsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    /// 가족 멤버 아바타 미리보기 — 4명까지 stacked, 그 이상은 +N.
+    private var memberAvatarStack: some View {
+        HStack(spacing: -8) {
+            ForEach(appState.members.prefix(4)) { member in
+                AvatarView(name: member.name, size: 24, imageURL: member.profileImageURL)
+                    .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 1.5))
+            }
+            if appState.members.count > 4 {
+                Text("+\(appState.members.count - 4)")
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+                    .background(Color(.tertiarySystemFill))
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 1.5))
+            }
+        }
     }
 
     // MARK: - Helpers
