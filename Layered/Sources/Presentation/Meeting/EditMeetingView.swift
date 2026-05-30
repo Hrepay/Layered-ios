@@ -304,6 +304,12 @@ struct EditMeetingView: View {
             updated.hasPoll = false
         }
 
+        // 일시가 미래로 옮겨졌으면 홈의 upcomingMeeting 필터에 다시 잡히게 status를 살린다.
+        // (HomeView는 status==.planning|.confirmed 이고 meetingDate>now 인 모임만 다음 모임으로 뽑음)
+        if date > Date() && (updated.status == .completed || updated.status == .cancelled) {
+            updated.status = .planning
+        }
+
         do {
             try await appState.updateMeeting(updated)
 

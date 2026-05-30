@@ -203,7 +203,7 @@ struct RecordDetailView: View {
             MeetingDetailView(
                 meeting: meeting,
                 onBack: { showMeetingDetail = false },
-                showsActionMenu: false
+                onUpdated: { Task { await loadRecords() } }
             )
             .environment(appState)
         }
