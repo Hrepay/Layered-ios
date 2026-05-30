@@ -16,6 +16,8 @@ struct CreateRecordView: View {
     @State private var showImagePicker = false
     @State private var isUploading = false
     @State private var showExitAlert = false
+    @State private var showAttendanceBanner = false
+    @State private var isUpdatingAttendance = false
     @FocusState private var commentFocused: Bool
 
     private var isEditMode: Bool { existingRecord != nil }
@@ -72,6 +74,11 @@ struct CreateRecordView: View {
             ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 24) {
+                    // MARK: - 참석 확인 배너 (미정·불참 상태에서 기록 쓸 때 한 번만)
+                    if showAttendanceBanner {
+                        attendanceBanner
+                    }
+
                     // MARK: - 모임 요약 카드
                     HStack(spacing: 12) {
                         Image(systemName: "mappin.circle.fill")
@@ -226,6 +233,16 @@ struct CreateRecordView: View {
             }
         }
         .loadingOverlay(isUploading)
+        .onAppear {
+            // 내 참석 상태가 .going이 아니면(미정·불참 포함) 참석 확인 배너 표시.
+            // 기존 기록 수정 모드면 이미 참석했다는 의미이므로 묻지 않음.
+            guard !isEditMode, let userId = appState.currentUser?.id else { return }
+            if meeting.attendanceStatus(for: userId) != .going {
+                withAnimation(.spring(duration: 0.4, bounce: 0.3)) {
+                    showAttendanceBanner = true
+                }
+            }
+        }
         .sheet(isPresented: $showImagePicker) {
             MultiImagePicker(maxSelection: 3 - photos.count, selectedImages: Binding(
                 get: { [] },
@@ -242,6 +259,86 @@ struct CreateRecordView: View {
             Button("나가기", role: .destructive) { onBack() }
         } message: {
             Text("지금 나가면 입력한 내용이 저장되지 않습니다.")
+        }
+    }
+
+    // MARK: - 참석 확인 배너
+    /// 참석 미정·불참 상태에서 기록을 쓰러 들어왔을 때 한 번 확인 후 자동으로 참석으로 갱신.
+    /// "예"를 누르면 setMyAttendance(.going) 호출, 둘 다 누르면 배너만 사라지고 기록은 그대로 계속.
+    @ViewBuilder
+    private var attendanceBanner: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "person.crop.circle.badge.questionmark.fill")
+                    .font(.title3)
+                    .foregroundStyle(AppColors.primary)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("이 모임에 참석하셨어요?")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.primary)
+                    Text("기록을 남기려면 참석으로 표시해야 자연스러워요.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    Task { await confirmAttended() }
+                } label: {
+                    Text("예, 참석했어요")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(AppColors.primary)
+                        .clipShape(Capsule())
+                }
+                .disabled(isUpdatingAttendance)
+
+                Button {
+                    Haptic.light()
+                    withAnimation(.spring(duration: 0.3)) {
+                        showAttendanceBanner = false
+                    }
+                } label: {
+                    Text("아니요")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color(.tertiarySystemFill))
+                        .clipShape(Capsule())
+                }
+                .disabled(isUpdatingAttendance)
+            }
+        }
+        .card(highlighted: true)
+        .transition(.asymmetric(
+            insertion: .opacity.combined(with: .move(edge: .top)),
+            removal: .opacity.combined(with: .scale(scale: 0.95))
+        ))
+    }
+
+    @MainActor
+    private func confirmAttended() async {
+        Haptic.medium()
+        isUpdatingAttendance = true
+        defer { isUpdatingAttendance = false }
+        do {
+            try await appState.setMyAttendance(meetingId: meeting.id, status: .going)
+            Haptic.success()
+            withAnimation(.spring(duration: 0.35, bounce: 0.3)) {
+                showAttendanceBanner = false
+            }
+        } catch {
+            appState.error = AppError.from(error)
         }
     }
 
