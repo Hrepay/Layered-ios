@@ -284,6 +284,19 @@ struct MeetingDetailView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 20))
                     }
 
+                    // MARK: - 최근 수정 — 가족 누구나 수정 가능한 정책이라 변경 출처를 명시
+                    if let editorName = meeting.lastEditedByName, let editedAt = meeting.lastEditedAt {
+                        HStack(spacing: 6) {
+                            Image(systemName: "pencil.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text("최근 수정 · \(editorName) · \(MeetingTimeFormat.relative(editedAt))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        .padding(.top, 4)
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)

@@ -397,6 +397,18 @@ struct HomeView: View {
                     .foregroundStyle(.primary)
                 }
 
+                // 최근 수정 정보 (가족 누구나 수정 가능한 정책의 신뢰감 보조)
+                if let editorName = meeting.lastEditedByName, let editedAt = meeting.lastEditedAt {
+                    HStack(spacing: 4) {
+                        Image(systemName: "pencil")
+                            .font(.caption2)
+                        Text("\(editorName)이 \(MeetingTimeFormat.relative(editedAt))에 수정")
+                            .font(.caption2)
+                        Spacer()
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 10)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, meetingLinkMetadata == nil && meeting.placeURL == nil ? 16 : 0)

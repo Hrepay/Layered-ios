@@ -65,7 +65,7 @@ final class FirebaseMeetingRepository: MeetingRepositoryProtocol {
     }
 
     func updateMeeting(familyId: String, meeting: Meeting) async throws {
-        try await meetingsRef(familyId: familyId).document(meeting.id).updateData([
+        var update: [String: Any] = [
             "meetingDate": Timestamp(date: meeting.meetingDate),
             "place": meeting.place,
             "placeLatitude": meeting.placeLatitude as Any,
@@ -76,7 +76,18 @@ final class FirebaseMeetingRepository: MeetingRepositoryProtocol {
             "hasPoll": meeting.hasPoll,
             "participantIds": meeting.participantIds,
             "updatedAt": Timestamp(date: Date()),
-        ])
+        ]
+        // 최근 수정자 정보(AppState.updateMeeting에서 주입). 없으면 기존 값 유지(필드 미설정).
+        if let editedAt = meeting.lastEditedAt {
+            update["lastEditedAt"] = Timestamp(date: editedAt)
+        }
+        if let editorId = meeting.lastEditedById {
+            update["lastEditedById"] = editorId
+        }
+        if let editorName = meeting.lastEditedByName {
+            update["lastEditedByName"] = editorName
+        }
+        try await meetingsRef(familyId: familyId).document(meeting.id).updateData(update)
     }
 
     func deleteMeeting(familyId: String, meetingId: String) async throws {
@@ -276,7 +287,10 @@ final class FirebaseMeetingRepository: MeetingRepositoryProtocol {
             attendance: (data["attendance"] as? [String: String] ?? [:])
                 .compactMapValues { Meeting.AttendanceStatus(rawValue: $0) },
             createdAt: (data["createdAt"] as? Timestamp)?.dateValue() ?? Date(),
-            updatedAt: (data["updatedAt"] as? Timestamp)?.dateValue() ?? Date()
+            updatedAt: (data["updatedAt"] as? Timestamp)?.dateValue() ?? Date(),
+            lastEditedAt: (data["lastEditedAt"] as? Timestamp)?.dateValue(),
+            lastEditedById: data["lastEditedById"] as? String,
+            lastEditedByName: data["lastEditedByName"] as? String
         )
     }
 }

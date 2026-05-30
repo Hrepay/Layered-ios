@@ -194,6 +194,24 @@ struct AppTextField: View {
     }
 }
 
+// MARK: - 시간 포맷
+/// "최근 수정 · OO · 5분 전" 같은 줄에서 쓰는 상대 시간 포맷.
+/// 1분 미만은 "방금 전", 그 외는 한국어 RelativeDateTimeFormatter를 사용.
+enum MeetingTimeFormat {
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.locale = Locale(identifier: "ko_KR")
+        f.unitsStyle = .short
+        return f
+    }()
+
+    static func relative(_ date: Date, now: Date = Date()) -> String {
+        let interval = now.timeIntervalSince(date)
+        if interval < 60 { return "방금 전" }
+        return relativeFormatter.localizedString(for: date, relativeTo: now)
+    }
+}
+
 // MARK: - 햅틱
 enum Haptic {
     static func light() {

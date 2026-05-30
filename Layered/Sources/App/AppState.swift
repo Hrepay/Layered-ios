@@ -408,7 +408,15 @@ final class AppState {
 
     func updateMeeting(_ meeting: Meeting) async throws {
         guard let familyId = currentFamily?.id else { throw AppStateError.noFamily }
-        try await meetingRepository.updateMeeting(familyId: familyId, meeting: meeting)
+        // 호출자가 별도로 안 채워도 항상 현재 사용자로 lastEditedBy 자동 주입.
+        // 출석/콕 찌르기 같은 운영성 변경은 별도 메서드를 타므로 이 경로엔 안 들어옴.
+        var updated = meeting
+        if let user = currentUser {
+            updated.lastEditedAt = Date()
+            updated.lastEditedById = user.id
+            updated.lastEditedByName = user.name
+        }
+        try await meetingRepository.updateMeeting(familyId: familyId, meeting: updated)
         await refreshMeetings()
     }
 

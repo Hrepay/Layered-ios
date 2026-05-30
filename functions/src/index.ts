@@ -1,5 +1,8 @@
 import {onSchedule} from "firebase-functions/v2/scheduler";
-import {onDocumentCreated} from "firebase-functions/v2/firestore";
+import {
+  onDocumentCreated,
+  onDocumentUpdated,
+} from "firebase-functions/v2/firestore";
 import {setGlobalOptions} from "firebase-functions/v2";
 import {initializeApp} from "firebase-admin/app";
 import {getFirestore, Timestamp, FieldValue} from "firebase-admin/firestore";
@@ -109,6 +112,100 @@ export const onMeetingCreated = onDocumentCreated(
         },
       },
       "MeetingCreated"
+    );
+  }
+);
+
+// ============================================================
+// 3. 모임 수정 알림 — Firestore Trigger
+// ============================================================
+// 가족 누구나 모임을 수정할 수 있어서, 다른 멤버에게도 즉시 알린다.
+// - lastEditedById를 보고 본인은 수신 대상에서 제외 (자기 수정 알림 방지)
+// - 의미 있는 필드(시간/장소/활동/상태/투표 여부)가 바뀐 경우에만 트리거.
+//   출석 변경/콕 찌르기 같은 운영성 변경은 무시.
+export const onMeetingUpdated = onDocumentUpdated(
+  "families/{familyId}/meetings/{meetingId}",
+  async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+    if (!before || !after) return;
+
+    // 의미 있는 변경 필드 진단
+    const changes: string[] = [];
+    const beforeDateMs =
+      (before.meetingDate as Timestamp | undefined)?.toMillis() ?? 0;
+    const afterDateMs =
+      (after.meetingDate as Timestamp | undefined)?.toMillis() ?? 0;
+    if (beforeDateMs !== afterDateMs) changes.push("시간");
+    if ((before.place ?? "") !== (after.place ?? "")) changes.push("장소");
+    if ((before.activity ?? "") !== (after.activity ?? "")) {
+      changes.push("활동");
+    }
+    if ((before.status ?? "") !== (after.status ?? "")) changes.push("상태");
+    if ((before.hasPoll ?? false) !== (after.hasPoll ?? false)) {
+      changes.push("투표");
+    }
+    if (changes.length === 0) return;
+
+    const editorId = after.lastEditedById as string | undefined;
+    // lastEditedById가 비어 있으면 AppState를 거치지 않은 변경(예: Functions 자체 업데이트).
+    // 식별 가능한 편집자가 없으면 알림 발송 스킵 → 자기 자신에게 푸시 가는 사고 방지.
+    if (!editorId) return;
+
+    const editorName =
+      (after.lastEditedByName as string | undefined) || "누군가";
+    const familyId = event.params.familyId;
+
+    const membersSnap = await db
+      .collection("families")
+      .doc(familyId)
+      .collection("members")
+      .get();
+
+    const tokens: string[] = [];
+    for (const memberDoc of membersSnap.docs) {
+      if (memberDoc.id === editorId) continue; // 편집자 본인 제외
+      const userDoc = await db
+        .collection("users").doc(memberDoc.id).get();
+      const userData = userDoc.data();
+      const fcmToken = userData?.fcmToken;
+      const notificationsEnabled =
+        userData?.notificationsEnabled !== false;
+      const notifyMeetingUpdated =
+        userData?.notifyMeetingUpdated !== false;
+      if (fcmToken && notificationsEnabled && notifyMeetingUpdated) {
+        tokens.push(fcmToken);
+      }
+    }
+    if (tokens.length === 0) return;
+
+    // 본문: 변경된 필드 라벨 결합
+    const changesText = changes.join("·");
+    const place = (after.place as string | undefined) || "";
+    const hasPoll = after.hasPoll === true;
+    let contextText: string;
+    if (place.length > 0) {
+      contextText = place;
+    } else if (hasPoll) {
+      contextText = "장소 투표 중인 모임";
+    } else {
+      contextText = "장소 미정 모임";
+    }
+
+    await sendMulticastAndCleanup(
+      tokens,
+      {
+        notification: {
+          title: `${editorName}님이 모임 ${changesText}을 변경했어요`,
+          body: contextText,
+        },
+        // 푸시 탭 시 해당 모임 상세로 이동
+        data: {
+          type: "meetingAttendance",
+          meetingId: event.params.meetingId,
+        },
+      },
+      "MeetingUpdated"
     );
   }
 );

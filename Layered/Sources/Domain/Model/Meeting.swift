@@ -19,6 +19,12 @@ struct Meeting: Identifiable, Codable, Hashable {
     var attendance: [String: AttendanceStatus] = [:]
     let createdAt: Date
     var updatedAt: Date
+    /// 가장 최근 EditMeetingView·후보 확정 등 "수정"으로 간주되는 액션이 일어난 시각.
+    /// 출석 변경·콕 찌르기 같은 운영성 변경은 updatedAt만 갱신하고 이 필드는 건드리지 않는다.
+    var lastEditedAt: Date? = nil
+    var lastEditedById: String? = nil
+    /// 표시용 비정규화 이름. 변경 시점의 사용자명을 박제 — 이후 가족에서 나가도 표시 유지.
+    var lastEditedByName: String? = nil
 
     enum Status: String, Codable {
         case planning

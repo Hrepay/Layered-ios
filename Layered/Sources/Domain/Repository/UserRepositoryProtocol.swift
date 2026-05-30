@@ -4,6 +4,7 @@ struct NotificationSettings: Equatable {
     var enabled: Bool = true
     var plannerReminder: Bool = true
     var meetingCreated: Bool = true
+    var meetingUpdated: Bool = true
     var meetingComment: Bool = true
     var meetingRecord: Bool = true
     var meetingDDay: Bool = true
