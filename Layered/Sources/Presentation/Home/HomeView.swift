@@ -14,6 +14,7 @@ struct HomeView: View {
     @State private var showCreateRecord: Meeting?
     @State private var showInvite = false
     @State private var toast: ToastData?
+    @State private var memberActivitySheetMember: Member?
     @State private var dismissedRecordCard = false
     @State private var meetingLinkMetadata: LPLinkMetadata?
     /// detail을 다른 모임으로 교체할 때 dismiss → present 사이의 일시적 nil 상태에서
@@ -59,6 +60,20 @@ struct HomeView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 12)
 
+                    // 가족 멤버 가로 스크롤 strip — 이번 주 활동 있으면 primary 링 강조
+                    if members.count > 1 {
+                        MemberStoriesStrip(
+                            members: members,
+                            currentUserId: currentUser.id,
+                            meetings: meetings,
+                            onSelect: { member in
+                                memberActivitySheetMember = member
+                            }
+                        )
+                        // 좌우 패딩을 strip 내부에서 처리하기 위해 부모의 horizontal padding 무시
+                        .padding(.horizontal, -20)
+                    }
+
                     if members.count <= 1 {
                         invitePromptCard
                     }
@@ -66,13 +81,11 @@ struct HomeView: View {
                     plannerSection
 
                     if let meeting = upcomingMeeting {
-                        dDayCard(meeting)
-
                         Button {
                             Haptic.light()
                             showMeetingDetail = meeting
                         } label: {
-                            meetingCard(meeting)
+                            heroMeetingCard(meeting)
                         }
                         .buttonStyle(.plain)
                     } else {
@@ -181,6 +194,17 @@ struct HomeView: View {
                 InviteMemberView(onBack: { showInvite = false })
                     .environment(appState)
             }
+            .sheet(item: $memberActivitySheetMember) { member in
+                MemberActivitySheet(
+                    member: member,
+                    meetings: meetings,
+                    allMembers: members,
+                    currentUserId: currentUser.id,
+                    onClose: { memberActivitySheetMember = nil }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
         }
     }
 
@@ -240,7 +264,143 @@ struct HomeView: View {
         .liquidGlassCard(highlighted: true)
     }
 
-    // MARK: - D-Day 카드
+    // MARK: - Hero 모임 카드 (다가오는 모임)
+    /// 풀와이드 hero. 링크 이미지가 있으면 배경에 깔고, 없으면 활동 아이콘 워터마크 + 그라데이션.
+    /// 하단은 darkening gradient로 텍스트 가독성을 확보 (variable-blur 느낌).
+    /// 상단에 D-day 글래스 pill + 상태 뱃지, 하단에 장소·일시·활동·멤버 아바타·"상세 보기".
+    private func heroMeetingCard(_ meeting: Meeting) -> some View {
+        ZStack {
+            // 배경 — 링크 이미지 우선, 없으면 그라데이션 + 활동 아이콘 워터마크
+            heroBackground(meeting)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // 하단 darkening 그라데이션 (variable blur 느낌)
+            VStack(spacing: 0) {
+                Spacer()
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.45), .black.opacity(0.85)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 240)
+            }
+            .allowsHitTesting(false)
+
+            VStack {
+                // 상단: D-day 글래스 pill + 상태 뱃지
+                HStack(spacing: 8) {
+                    Text(dDayText(for: meeting.meetingDate))
+                        .font(.headline)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(.ultraThinMaterial, in: Capsule())
+
+                    BadgeView(
+                        text: meeting.status == .confirmed ? "확정" : "예정됨",
+                        color: meeting.status == .confirmed ? AppColors.secondary : AppColors.warning
+                    )
+                    if meeting.hasPoll {
+                        BadgeView(text: "투표", color: AppColors.info)
+                    }
+                    Spacer()
+                }
+
+                Spacer()
+
+                // 하단: 장소·날짜·활동·멤버
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(meeting.displayPlace)
+                        .font(.system(size: 30, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Text(formatDate(meeting.meetingDate))
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.white.opacity(0.92))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if let activity = meeting.activity, !activity.isEmpty {
+                        HStack(spacing: 8) {
+                            ForEach(activityIcons(for: activity).prefix(3), id: \.self) { icon in
+                                Image(systemName: icon)
+                                    .font(.caption)
+                                    .foregroundStyle(.white)
+                                    .padding(7)
+                                    .background(.ultraThinMaterial, in: Circle())
+                            }
+                            Text(activity)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.92))
+                                .lineLimit(1)
+                        }
+                    }
+
+                    HStack {
+                        HStack(spacing: -8) {
+                            ForEach(members.prefix(4)) { member in
+                                AvatarView(name: member.name, size: 30, imageURL: member.profileImageURL)
+                                    .overlay(Circle().stroke(.white, lineWidth: 2))
+                            }
+                            if members.count > 4 {
+                                Text("+\(members.count - 4)")
+                                    .font(.caption2)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(.white)
+                                    .frame(width: 30, height: 30)
+                                    .background(Color.white.opacity(0.25))
+                                    .clipShape(Circle())
+                                    .overlay(Circle().stroke(.white, lineWidth: 2))
+                            }
+                        }
+                        Spacer()
+                        HStack(spacing: 4) {
+                            Text("상세 보기")
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                        }
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.white)
+                    }
+                }
+            }
+            .padding(20)
+        }
+        .frame(height: 420)
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
+    }
+
+    @ViewBuilder
+    private func heroBackground(_ meeting: Meeting) -> some View {
+        if let metadata = meetingLinkMetadata {
+            LinkPreviewImage(metadata: metadata)
+                .scaledToFill()
+        } else {
+            // 활동 아이콘 워터마크 + 따뜻한 그라데이션
+            ZStack {
+                LinearGradient(
+                    colors: [AppColors.primaryLight, AppColors.primary],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                if let activity = meeting.activity,
+                   let firstIcon = activityIcons(for: activity).first {
+                    Image(systemName: firstIcon)
+                        .font(.system(size: 240))
+                        .foregroundStyle(.white.opacity(0.16))
+                        .rotationEffect(.degrees(-12))
+                        .offset(x: 30, y: -20)
+                }
+            }
+        }
+    }
+
+    // MARK: - D-Day 카드 (레거시, 더 이상 사용 안 함 — Hero 카드로 대체)
     /// iOS 26+에서는 Liquid Glass로 띄우고, 그 이하 버전은 기존 피치 톤 배경 유지.
     @ViewBuilder
     private func dDayCard(_ meeting: Meeting) -> some View {
