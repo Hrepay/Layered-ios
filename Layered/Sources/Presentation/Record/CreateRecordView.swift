@@ -153,7 +153,7 @@ struct CreateRecordView: View {
                         HStack(spacing: 10) {
                             ForEach(1...5, id: \.self) { star in
                                 Button {
-                                    Haptic.light()
+                                    Haptic.starRating(star)
                                     withAnimation(.spring(duration: 0.3, bounce: 0.5)) {
                                         rating = star
                                         animatedStar = star
@@ -398,4 +398,74 @@ struct RecordPhotoSlot {
 
 #Preview("기록 작성") {
     CreateRecordView(meeting: MockData.meetings[1], onBack: {}, onSaved: { _ in })
+        .environment(AppState())
+}
+
+/// 별점 단계별 햅틱과 spring 튕김을 빠르게 확인하기 위한 미니멀 데모.
+/// 실제 화면 노이즈 없이 별 5개만 띄우고, 탭하면 단계별 햅틱(1·2 light → 3 medium → 4 heavy → 5 heavy+success)이 발화.
+#Preview("별점 햅틱 데모") {
+    StarRatingHapticDemo()
+}
+
+private struct StarRatingHapticDemo: View {
+    @State private var rating = 0
+    @State private var animatedStar: Int? = nil
+
+    var body: some View {
+        VStack(spacing: 32) {
+            VStack(spacing: 8) {
+                Text("별점 단계별 햅틱")
+                    .font(.title3)
+                    .fontWeight(.bold)
+                Text("탭해서 1~5★ 강도 차이를 확인")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 14) {
+                ForEach(1...5, id: \.self) { star in
+                    Button {
+                        Haptic.starRating(star)
+                        withAnimation(.spring(duration: 0.3, bounce: 0.5)) {
+                            rating = star
+                            animatedStar = star
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            animatedStar = nil
+                        }
+                    } label: {
+                        Image(systemName: star <= rating ? "star.fill" : "star")
+                            .font(.system(size: 36))
+                            .foregroundStyle(star <= rating ? AppColors.warning : Color(.systemGray4))
+                            .scaleEffect(animatedStar == star ? 1.3 : 1.0)
+                            .animation(.spring(duration: 0.3, bounce: 0.5), value: animatedStar)
+                    }
+                }
+            }
+
+            Text(hint)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(height: 20)
+
+            Button("초기화") {
+                withAnimation { rating = 0 }
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground))
+    }
+
+    private var hint: String {
+        switch rating {
+        case 0: return ""
+        case 1, 2: return "light · 가벼운 탁"
+        case 3: return "medium · 무게감 있는 탁"
+        case 4: return "heavy · 묵직한 탁"
+        case 5: return "heavy + success · 5★ 성공 알림"
+        default: return ""
+        }
+    }
 }

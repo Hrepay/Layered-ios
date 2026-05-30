@@ -185,9 +185,25 @@ struct HomeView: View {
     }
 
     // MARK: - 플래너 섹션
+    /// 플래너가 바뀌면 아바타·이름이 좌→우로 슬라이드하면서 교체된다 ("바통 터치").
+    /// 트랜지션을 켜기 위해 내용 컨테이너에 `.id(currentPlanner?.id)`를 걸어
+    /// 플래너 변경 시 자연스럽게 unmount → mount가 일어나도록 한다.
     private var plannerSection: some View {
         HStack(spacing: 14) {
-            AvatarView(name: currentPlanner?.name ?? "?", size: 52, imageURL: currentPlanner?.profileImageURL)
+            ZStack {
+                AvatarView(
+                    name: currentPlanner?.name ?? "?",
+                    size: 52,
+                    imageURL: currentPlanner?.profileImageURL
+                )
+                .id(currentPlanner?.id ?? "none")
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
+            }
+            .frame(width: 52, height: 52)
+            .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("THIS WEEK'S PLANNER")
@@ -195,25 +211,40 @@ struct HomeView: View {
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
 
-                if isPlanner {
-                    Text("이번 주 플래너는 나!")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                } else {
-                    Text("이번 주 플래너는 \(currentPlanner?.name ?? "미정")!")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
+                ZStack {
+                    if isPlanner {
+                        Text("이번 주 플래너는 나!")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                    } else {
+                        Text("이번 주 플래너는 \(currentPlanner?.name ?? "미정")!")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                    }
                 }
+                .id(currentPlanner?.id ?? "none")
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
             }
 
             Spacer()
         }
-        .card(highlighted: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
+        .animation(.spring(duration: 0.55, bounce: 0.35), value: currentPlanner?.id)
+        .onChange(of: currentPlanner?.id) { _, _ in
+            Haptic.medium()
+        }
+        .liquidGlassCard(highlighted: true)
     }
 
     // MARK: - D-Day 카드
+    /// iOS 26+에서는 Liquid Glass로 띄우고, 그 이하 버전은 기존 피치 톤 배경 유지.
+    @ViewBuilder
     private func dDayCard(_ meeting: Meeting) -> some View {
-        VStack(spacing: 8) {
+        let content = VStack(spacing: 8) {
             Text(dDayText(for: meeting.meetingDate))
                 .font(.system(size: 40, weight: .bold))
                 .foregroundStyle(.primary)
@@ -224,11 +255,21 @@ struct HomeView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(AppColors.primaryLight)
-                .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
-        )
+
+        if #available(iOS 26.0, *) {
+            content
+                .glassEffect(
+                    .regular.tint(AppColors.primaryLight),
+                    in: RoundedRectangle(cornerRadius: 20)
+                )
+        } else {
+            content
+                .background(
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(AppColors.primaryLight)
+                        .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
+                )
+        }
     }
 
     // MARK: - 모임 카드
@@ -355,6 +396,7 @@ struct HomeView: View {
                     }
                     .foregroundStyle(.primary)
                 }
+
             }
             .padding(.horizontal, 16)
             .padding(.top, meetingLinkMetadata == nil && meeting.placeURL == nil ? 16 : 0)
@@ -626,6 +668,7 @@ struct HomeView: View {
         meetings: MockData.meetings,
         currentUser: MockData.currentUser
     )
+    .environment(AppState())
 }
 
 #Preview("모임 없음 - 플래너") {
@@ -635,6 +678,7 @@ struct HomeView: View {
         meetings: [],
         currentUser: MockData.currentUser
     )
+    .environment(AppState())
 }
 
 #Preview("모임 없음 - 비플래너") {
@@ -648,6 +692,7 @@ struct HomeView: View {
         meetings: [],
         currentUser: MockData.currentUser
     )
+    .environment(AppState())
 }
 
 #Preview("구성원 본인만 - 초대 유도") {
@@ -657,6 +702,7 @@ struct HomeView: View {
         meetings: [],
         currentUser: MockData.currentUser
     )
+    .environment(AppState())
 }
 
 #Preview("모임 완료 - 기록 유도") {
@@ -666,4 +712,47 @@ struct HomeView: View {
         meetings: [MockData.meetings[1]],
         currentUser: MockData.currentUser
     )
+    .environment(AppState())
+}
+
+/// 플래너 바통 터치 트랜지션을 프리뷰에서 직접 트리거.
+/// 하단의 "다음 플래너로" 버튼을 누르면 currentPlannerIndex가 순환하면서 슬라이드 트랜지션이 발화.
+#Preview("플래너 바통 터치 데모") {
+    HomePlannerTransitionDemo()
+}
+
+private struct HomePlannerTransitionDemo: View {
+    @State private var family = MockData.family
+    private let members = MockData.members
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HomeView(
+                family: family,
+                members: members,
+                meetings: MockData.meetings,
+                currentUser: MockData.currentUser
+            )
+            .environment(AppState())
+
+            Button {
+                family.currentPlannerIndex = (family.currentPlannerIndex + 1) % max(members.count, 1)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.right.circle.fill")
+                    Text("다음 플래너로 (\(members[(family.currentPlannerIndex + 1) % members.count].name))")
+                }
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(.white)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity)
+                .background(AppColors.primary)
+                .clipShape(Capsule())
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
+            }
+            .buttonStyle(.plain)
+        }
+    }
 }

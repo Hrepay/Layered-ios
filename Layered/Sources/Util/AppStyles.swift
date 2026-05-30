@@ -203,6 +203,48 @@ enum Haptic {
     static func medium() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
+
+    static func heavy() {
+        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+    }
+
+    static func success() {
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    /// 별점(1~5)에 비례한 단계별 햅틱. 5점은 success 노티 햅틱까지 같이.
+    static func starRating(_ rating: Int) {
+        switch rating {
+        case 1, 2: light()
+        case 3: medium()
+        case 4: heavy()
+        case 5:
+            heavy()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                success()
+            }
+        default: light()
+        }
+    }
+}
+
+// MARK: - Liquid Glass (iOS 26+)
+/// iOS 26의 `glassEffect`를 우선 사용하고 그 이하 버전에서는 기존 `.card()`로 폴백.
+/// 미니멀하게 highlighted 상태만 토글한다 — DESIGN_GUIDE의 컬러 사용 규칙 그대로.
+extension View {
+    @ViewBuilder
+    func liquidGlassCard(highlighted: Bool = false) -> some View {
+        if #available(iOS 26.0, *) {
+            self
+                .padding(16)
+                .glassEffect(
+                    .regular.tint(highlighted ? AppColors.primarySubtle : Color.clear),
+                    in: RoundedRectangle(cornerRadius: 20)
+                )
+        } else {
+            self.card(highlighted: highlighted)
+        }
+    }
 }
 
 // MARK: - 스와이프로 뒤로가기 (fullScreenCover용)
