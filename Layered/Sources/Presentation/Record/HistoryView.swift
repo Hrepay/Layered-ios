@@ -176,6 +176,8 @@ struct HistoryView: View {
     }
 
     // MARK: - 모임 행
+    /// 행 전체(빈 공간 포함)가 탭 가능하도록 contentShape 명시.
+    /// .card() 내부의 padding 영역까지 히트 테스트가 닿게 만든다.
     @ViewBuilder
     private func meetingRow(_ meeting: Meeting) -> some View {
         Button {
@@ -243,6 +245,7 @@ struct HistoryView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .card()
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
