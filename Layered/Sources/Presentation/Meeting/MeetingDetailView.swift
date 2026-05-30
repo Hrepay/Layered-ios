@@ -23,6 +23,7 @@ struct MeetingDetailView: View {
     @State private var isMutatingPoll = false
     @State private var showDiscussion = false
     @State private var showParticipants = false
+    @State private var toast: ToastData?
 
     init(meeting: Meeting, onBack: @escaping () -> Void, onDeleted: (() -> Void)? = nil, onUpdated: (() -> Void)? = nil, showsActionMenu: Bool = true) {
         _meeting = State(initialValue: meeting)
@@ -302,11 +303,19 @@ struct MeetingDetailView: View {
             EditMeetingView(meeting: meeting, onBack: {
                 showEdit = false
             }, onSaved: { updatedMeeting in
+                // 종료/취소된 모임 → planning 으로 살아난 경우 토스트 + success 햅틱.
+                // 비교 시점이 중요: meeting을 갈아끼우기 전에 이전 status를 캡처.
+                let didReactivate = (meeting.status == .completed || meeting.status == .cancelled)
+                    && updatedMeeting.status == .planning
                 showEdit = false
                 meeting = updatedMeeting
                 onUpdated?()
                 // EditView에서 Poll 변경이 일어났을 수 있어 다시 로드
                 Task { await reloadDetail() }
+                if didReactivate {
+                    Haptic.success()
+                    toast = ToastData(type: .success, message: "이 모임이 홈으로 돌아왔어요")
+                }
             })
             .environment(appState)
         }
@@ -332,6 +341,7 @@ struct MeetingDetailView: View {
         } message: {
             Text("정말 삭제하시겠습니까?\n관련 기록도 함께 삭제됩니다.")
         }
+        .toast($toast)
         .alert("이 장소로 확정", isPresented: Binding(
             get: { confirmCandidateOption != nil },
             set: { if !$0 { confirmCandidateOption = nil } }
@@ -554,6 +564,7 @@ struct MeetingDetailView: View {
                     .disabled(isMutatingPoll)
                 }
             }
+
         }
         .padding(12)
         .background(

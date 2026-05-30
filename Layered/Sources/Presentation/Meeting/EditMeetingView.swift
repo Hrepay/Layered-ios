@@ -23,6 +23,7 @@ struct EditMeetingView: View {
     @State private var linkMetadata: LPLinkMetadata?
     @State private var isLoadingLink = false
     @State private var showPastDateAlert = false
+    @State private var showReactivateAlert = false
     @State private var isSaving = false
 
     private var finalActivity: String? {
@@ -33,6 +34,18 @@ struct EditMeetingView: View {
 
     private var validCandidateOptions: [PollOption] {
         PlaceCandidateDraft.toPollOptions(candidates)
+    }
+
+    /// 저장 시 cancelled/completed 모임이 미래 시점으로 옮겨져 자동으로 다시 활성화되는지.
+    /// EditMeetingView가 trailing 액션 분기와 alert 메시지에서 모두 참조.
+    private var willReactivate: Bool {
+        date > Date()
+            && (meeting.status == .completed || meeting.status == .cancelled)
+    }
+
+    private var reactivateAlertMessage: String {
+        let from = meeting.status == .completed ? "완료된" : "취소된"
+        return "이 모임은 \(from) 모임이에요.\n저장하면 다시 다가오는 모임으로 홈에 표시됩니다."
     }
 
     private var canSave: Bool {
@@ -80,6 +93,10 @@ struct EditMeetingView: View {
                     Haptic.medium()
                     if date < Date() {
                         showPastDateAlert = true
+                    } else if willReactivate {
+                        // cancelled/completed 모임을 미래로 옮기는 경우 한 번 더 확인.
+                        // 가족 누군가의 실수로 종료된 모임이 silent로 살아나는 걸 방지.
+                        showReactivateAlert = true
                     } else {
                         Task { await performSave() }
                     }
@@ -163,6 +180,12 @@ struct EditMeetingView: View {
             Button("저장") { Task { await performSave() } }
         } message: {
             Text("선택한 일시가 현재 시점보다 과거입니다.\n저장하면 이 모임은 바로 완료된 모임으로 표시됩니다.")
+        }
+        .alert("이 모임을 다시 활성화할까요?", isPresented: $showReactivateAlert) {
+            Button("취소", role: .cancel) {}
+            Button("저장") { Task { await performSave() } }
+        } message: {
+            Text(reactivateAlertMessage)
         }
     }
 
