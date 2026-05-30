@@ -597,37 +597,11 @@ struct MeetingDetailView: View {
 
     // MARK: - 투표자 아바타
 
-    /// 옵션에 투표한 멤버들을 작은 아바타 스택으로 표시. 최대 5명, 그 이상이면 +N.
-    /// 가족에서 이미 나간 멤버는 회색 ? 아바타로 표기해 이력 보존.
+    /// 옵션에 투표한 멤버들을 작은 아바타 스택으로 표시.
+    /// 실제 렌더링은 공통 컴포넌트 PollVoterAvatars로 위임 — MeetingDiscussionView와 디자인 공유.
     @ViewBuilder
     private func voterAvatars(for option: PollOption) -> some View {
-        let resolved: [(id: String, name: String, imageURL: String?)] = option.voterIds.map { id in
-            if let m = appState.members.first(where: { $0.id == id }) {
-                return (id, m.name, m.profileImageURL)
-            } else {
-                return (id, "?", nil)
-            }
-        }
-        HStack(spacing: 6) {
-            HStack(spacing: -6) {
-                ForEach(Array(resolved.prefix(5).enumerated()), id: \.offset) { _, voter in
-                    AvatarView(name: voter.name, size: 22, imageURL: voter.imageURL)
-                        .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 1.5))
-                }
-            }
-            if resolved.count > 5 {
-                Text("+\(resolved.count - 5)")
-                    .font(.caption2)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text(resolved.map(\.name).joined(separator: ", "))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 0)
-        }
+        PollVoterAvatars(voterIds: option.voterIds, members: appState.members)
     }
 
     // MARK: - 후보 추가 시트

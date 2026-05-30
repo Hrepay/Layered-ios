@@ -258,6 +258,11 @@ struct MeetingDiscussionView: View {
                     ProgressView().scaleEffect(0.7)
                 }
             }
+
+            // 투표자 아바타 — 공개 투표일 때만, 누가 골랐는지 한눈에
+            if let p = poll, !p.isAnonymous, !option.voterIds.isEmpty {
+                PollVoterAvatars(voterIds: option.voterIds, members: appState.members)
+            }
         }
         .padding(14)
         .background(
