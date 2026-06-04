@@ -366,9 +366,26 @@ final class AppState {
         guard let familyId = currentFamily?.id else { return }
         do {
             meetings = try await meetingRepository.getMeetings(familyId: familyId)
+            // 토글 ON이면 다가오는 모임을 본인 캘린더에 backfill —
+            // 가족 다른 멤버가 만든 모임도 누락 없이 등록되게 보장.
+            backfillCalendarIfNeeded()
         } catch {
             self.error = AppError.from(error)
         }
+    }
+
+    /// 캘린더 토글이 켜져 있으면 현재 ~ 미래 1년 모임을 본인 캘린더에 일괄 sync.
+    /// CalendarSyncService 내부에서 이미 등록된 이벤트는 update만, 신규는 create.
+    @MainActor
+    func backfillCalendarIfNeeded() {
+        guard CalendarSyncService.shared.isEnabled,
+              CalendarSyncService.shared.hasAccess else { return }
+        let now = Date()
+        let upcoming = meetings.filter {
+            $0.meetingDate >= now.addingTimeInterval(-7 * 24 * 3600) // 지난 1주까지 포함
+                && $0.status != .cancelled
+        }
+        CalendarSyncService.shared.syncEvents(upcoming)
     }
 
     @MainActor
@@ -403,6 +420,8 @@ final class AppState {
         guard let familyId = currentFamily?.id else { throw AppStateError.noFamily }
         let created = try await meetingRepository.createMeeting(familyId: familyId, meeting: meeting)
         await refreshMeetings()
+        // iOS 캘린더 동기화 — MainActor 격리. 토글 OFF면 no-op. 실패해도 모임 생성은 성공.
+        await MainActor.run { CalendarSyncService.shared.syncEvent(for: created) }
         return created
     }
 
@@ -418,6 +437,8 @@ final class AppState {
         }
         try await meetingRepository.updateMeeting(familyId: familyId, meeting: updated)
         await refreshMeetings()
+        // iOS 캘린더에도 변경 반영
+        await MainActor.run { CalendarSyncService.shared.syncEvent(for: updated) }
     }
 
     func deleteMeeting(_ meetingId: String) async throws {
@@ -426,6 +447,8 @@ final class AppState {
         defer { isLoading = false }
         try await meetingRepository.deleteMeeting(familyId: familyId, meetingId: meetingId)
         await refreshMeetings()
+        // 캘린더에서도 제거
+        await MainActor.run { CalendarSyncService.shared.removeEvent(for: meetingId) }
     }
 
     // MARK: - 참석 / 참여자 / 콕 찌르기
