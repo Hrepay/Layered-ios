@@ -17,6 +17,11 @@ struct NotificationSettingsView: View {
     @State private var nudge = true
     @State private var isLoaded = false
 
+    // iOS 캘린더 동기화 (UserDefaults 기반 per-device 토글)
+    @State private var calendarSyncOn = false
+    @State private var showCalendarPermissionAlert = false
+    @State private var calendarSyncBusy = false
+
     private var masterEnabled: Bool {
         systemAuthorized && notificationsEnabled
     }
@@ -105,6 +110,20 @@ struct NotificationSettingsView: View {
                         .onChange(of: nudge) { _, _ in save() }
                 }
                 .disabled(!masterEnabled)
+
+                Section {
+                    Toggle("iOS 캘린더 동기화", isOn: Binding(
+                        get: { calendarSyncOn },
+                        set: { handleCalendarToggle($0) }
+                    ))
+                    .tint(AppColors.primary)
+                    .disabled(calendarSyncBusy)
+                } header: {
+                    Text("기기 동기화")
+                } footer: {
+                    Text("가족 모임을 본인 폰의 iOS 캘린더에 자동으로 등록·갱신해요. 시작 1시간 전 시스템 알림으로 알려드려요. 가족 멤버 각자 본인 폰에서 켜야 본인 캘린더에 추가돼요.")
+                        .font(.caption)
+                }
             }
             .listStyle(.insetGrouped)
         }
@@ -120,7 +139,16 @@ struct NotificationSettingsView: View {
             meetingRecord = settings.meetingRecord
             meetingDDay = settings.meetingDDay
             nudge = settings.nudge
+            // 캘린더 토글 — 권한과 UserDefaults 둘 다 ON이어야 ON으로 표시
+            calendarSyncOn = CalendarSyncService.shared.isEnabled
+                && CalendarSyncService.shared.hasAccess
             isLoaded = true
+        }
+        .alert("캘린더 권한이 필요해요", isPresented: $showCalendarPermissionAlert) {
+            Button("취소", role: .cancel) {}
+            Button("설정 열기") { openSystemSettings() }
+        } message: {
+            Text("iOS 설정에서 겹겹의 캘린더 접근 권한을 허용해주세요.")
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
@@ -160,6 +188,35 @@ struct NotificationSettingsView: View {
     private func openSystemSettings() {
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
         UIApplication.shared.open(url)
+    }
+
+    /// 캘린더 동기화 토글 처리.
+    /// ON 시: 권한 요청 → 허용되면 UserDefaults ON + 다가오는 모임 backfill.
+    /// OFF 시: UserDefaults OFF만 (기존 캘린더 이벤트는 보존 — 사용자 데이터 함부로 안 지움).
+    private func handleCalendarToggle(_ newValue: Bool) {
+        Haptic.light()
+        if newValue {
+            calendarSyncBusy = true
+            Task {
+                let granted = await CalendarSyncService.shared.requestAccess()
+                await MainActor.run {
+                    if granted {
+                        CalendarSyncService.shared.isEnabled = true
+                        calendarSyncOn = true
+                        appState.backfillCalendarIfNeeded()
+                    } else {
+                        // 권한 거부 또는 시스템 설정에서 막힌 경우
+                        CalendarSyncService.shared.isEnabled = false
+                        calendarSyncOn = false
+                        showCalendarPermissionAlert = true
+                    }
+                    calendarSyncBusy = false
+                }
+            }
+        } else {
+            CalendarSyncService.shared.isEnabled = false
+            calendarSyncOn = false
+        }
     }
 }
 
