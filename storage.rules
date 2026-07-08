@@ -23,6 +23,16 @@ service firebase.storage {
       allow delete: if request.auth != null;
     }
 
+    // 한 겹(노트) 사진: 인증된 사용자만. 경로 URL은 Firestore(notes.photoURL)에 저장돼 있고
+    // 거기 접근이 가족 멤버로 제한되므로 외부 URL 추측은 실질적으로 불가능
+    match /families/{familyId}/notes/{noteId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null;
+    }
+
     // 위 경로 외 전부 차단
     match /{allPaths=**} {
       allow read, write: if false;

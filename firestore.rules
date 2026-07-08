@@ -95,6 +95,19 @@ service cloud.firestore {
           allow delete: if isMemberOf(familyId);
         }
       }
+
+      // 한 겹(노트): 모임과 독립된 가벼운 메모. 작성자 본인만 수정, 삭제는 본인 또는 관리자.
+      match /notes/{noteId} {
+        allow read: if isMemberOf(familyId);
+        allow create: if isMemberOf(familyId)
+          && request.resource.data.authorId == request.auth.uid;
+        allow update: if isMemberOf(familyId)
+          && resource.data.authorId == request.auth.uid
+          // 작성자 정보는 변경 불가
+          && request.resource.data.authorId == resource.data.authorId;
+        allow delete: if isMemberOf(familyId)
+          && (resource.data.authorId == request.auth.uid || isAdminOf(familyId));
+      }
     }
 
     // 위 경로 외 전부 차단

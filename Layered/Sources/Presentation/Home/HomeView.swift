@@ -12,6 +12,7 @@ struct HomeView: View {
     @State private var showMeetingDetail: Meeting?
     @State private var showCreateMeeting = false
     @State private var showCreateRecord: Meeting?
+    @State private var showCreateNote = false
     @State private var showInvite = false
     @State private var toast: ToastData?
     @State private var memberActivitySheetMember: Member?
@@ -105,6 +106,9 @@ struct HomeView: View {
                             emptyMeetingView
                         }
                     }
+
+                    // 모임이 아니어도 이번 주 흔적을 남기는 "한 겹" 진입 — 항상 노출.
+                    noteEntryCard
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 24)
@@ -193,6 +197,15 @@ struct HomeView: View {
             .fullScreenCover(isPresented: $showInvite) {
                 InviteMemberView(onBack: { showInvite = false })
                     .environment(appState)
+            }
+            .fullScreenCover(isPresented: $showCreateNote) {
+                CreateNoteView(onBack: {
+                    showCreateNote = false
+                }, onSaved: { _ in
+                    showCreateNote = false
+                    toast = ToastData(type: .success, message: "한 겹을 남겼어요")
+                })
+                .environment(appState)
             }
             .sheet(item: $memberActivitySheetMember) { member in
                 MemberActivitySheet(
@@ -684,6 +697,45 @@ struct HomeView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)
         .card()
+    }
+
+    // MARK: - 한 겹 남기기 진입 카드
+    /// 모임으로 정하기 애매하거나 그냥 지나간 주에도 한 줄 흔적을 남기게 하는 슬림 진입점.
+    /// 모임 플로우(primary)와 경쟁하지 않도록 secondary 톤의 낮은 위계로.
+    private var noteEntryCard: some View {
+        Button {
+            Haptic.light()
+            showCreateNote = true
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "square.stack.3d.up.fill")
+                    .font(.title3)
+                    .foregroundStyle(AppColors.secondary)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(AppColors.secondarySubtle))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("한 겹 남기기")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.primary)
+                    Text("모임이 아니어도 오늘을 한 줄로")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .card()
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - 빈 상태

@@ -1,26 +1,56 @@
 import SwiftUI
 
+/// 타임라인 한 행 — 모임 또는 한 겹(노트). 날짜순 통합 정렬을 위한 래퍼.
+enum HistoryEntry: Identifiable {
+    case meeting(Meeting)
+    case note(Note)
+
+    var id: String {
+        switch self {
+        case .meeting(let m): return "m-\(m.id)"
+        case .note(let n): return "n-\(n.id)"
+        }
+    }
+
+    var date: Date {
+        switch self {
+        case .meeting(let m): return m.meetingDate
+        case .note(let n): return n.date
+        }
+    }
+}
+
 struct HistoryView: View {
     @Environment(AppState.self) private var appState: AppState
     @State private var selectedMeeting: Meeting?
+    @State private var noteToEdit: Note?
     @State private var showCalendar = false
 
     private var meetings: [Meeting] { appState.meetings }
+    private var notes: [Note] { appState.notes }
 
-    /// 월 단위로 묶은 섹션. meetings가 이미 meetingDate desc로 정렬돼서 들어오므로
-    /// 순차 순회하며 직전 라벨과 다르면 새 섹션을 시작하는 방식으로 충분 — 별도 재정렬 불필요.
-    private var monthSections: [(label: String, meetings: [Meeting])] {
+    /// 모임 + 노트를 날짜 desc로 통합한 엔트리. 노트는 정렬이 보장 안 될 수 있어 명시적으로 정렬.
+    private var entries: [HistoryEntry] {
+        let merged = meetings.map { HistoryEntry.meeting($0) } + notes.map { HistoryEntry.note($0) }
+        return merged.sorted { $0.date > $1.date }
+    }
+
+    private var isEmpty: Bool { meetings.isEmpty && notes.isEmpty }
+
+    /// 월 단위로 묶은 섹션. entries가 date desc로 정렬돼 들어오므로
+    /// 순차 순회하며 직전 라벨과 다르면 새 섹션을 시작하는 방식으로 충분.
+    private var monthSections: [(label: String, entries: [HistoryEntry])] {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ko_KR")
         formatter.dateFormat = "yyyy년 M월"
-        var sections: [(label: String, meetings: [Meeting])] = []
-        for meeting in meetings {
-            let label = formatter.string(from: meeting.meetingDate)
+        var sections: [(label: String, entries: [HistoryEntry])] = []
+        for entry in entries {
+            let label = formatter.string(from: entry.date)
             if var last = sections.last, last.label == label {
-                last.meetings.append(meeting)
+                last.entries.append(entry)
                 sections[sections.count - 1] = last
             } else {
-                sections.append((label, [meeting]))
+                sections.append((label, [entry]))
             }
         }
         return sections
@@ -29,7 +59,7 @@ struct HistoryView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if meetings.isEmpty {
+                if isEmpty {
                     VStack(spacing: 0) {
                         HStack {
                             Text("히스토리")
@@ -79,11 +109,11 @@ struct HistoryView: View {
                             // MARK: - 활동 분포
                             ActivityDistributionChart(meetings: meetings)
 
-                            // MARK: - 타임라인 (월별 섹션)
+                            // MARK: - 타임라인 (월별 섹션 · 모임 + 한 겹)
                             ForEach(monthSections, id: \.label) { section in
                                 monthHeader(section.label)
-                                ForEach(section.meetings) { meeting in
-                                    meetingRow(meeting)
+                                ForEach(section.entries) { entry in
+                                    entryRow(entry)
                                 }
                             }
                         }
@@ -92,6 +122,7 @@ struct HistoryView: View {
                     }
                     .refreshable {
                         await appState.refreshMeetings()
+                        await appState.refreshNotes()
                         await appState.checkMyRecords()
                     }
                 }
@@ -114,6 +145,17 @@ struct HistoryView: View {
                     }, onDeleted: {
                         selectedMeeting = nil
                         Task { await appState.refreshMeetings() }
+                    })
+                    .environment(appState)
+                }
+                .errorAlert(Bindable(appState).error)
+            }
+            .fullScreenCover(item: $noteToEdit) { note in
+                NavigationStack {
+                    CreateNoteView(existingNote: note, onBack: {
+                        noteToEdit = nil
+                    }, onSaved: { _ in
+                        noteToEdit = nil
                     })
                     .environment(appState)
                 }
@@ -173,6 +215,100 @@ struct HistoryView: View {
         }
         .padding(.top, 8)
         .padding(.bottom, 2)
+    }
+
+    // MARK: - 타임라인 행 분기
+    @ViewBuilder
+    private func entryRow(_ entry: HistoryEntry) -> some View {
+        switch entry {
+        case .meeting(let meeting): meetingRow(meeting)
+        case .note(let note): noteRow(note)
+        }
+    }
+
+    // MARK: - 한 겹(노트) 행
+    /// 모임 행과 같은 날짜 컬럼 구조를 쓰되, "한 겹" 뱃지·secondary 톤으로 시각 구분.
+    /// 탭하면 수정, 롱프레스 컨텍스트 메뉴로 삭제.
+    @ViewBuilder
+    private func noteRow(_ note: Note) -> some View {
+        Button {
+            Haptic.light()
+            noteToEdit = note
+        } label: {
+            HStack(alignment: .top, spacing: 14) {
+                VStack(spacing: 2) {
+                    Text(dayText(note.date))
+                        .font(.title3)
+                        .fontWeight(.bold)
+                    Text(weekdayText(note.date))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(width: 44)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        HStack(spacing: 5) {
+                            Image(systemName: "square.stack.3d.up.fill")
+                                .font(.caption2)
+                            Text("한 겹")
+                                .font(.caption2)
+                                .fontWeight(.semibold)
+                        }
+                        .foregroundStyle(AppColors.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(AppColors.secondarySubtle))
+
+                        Spacer()
+                    }
+
+                    Text(note.text)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if let photoURL = note.photoURL {
+                        CachedAsyncImage(url: URL(string: photoURL))
+                            .aspectRatio(contentMode: .fill)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 150)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+
+                    HStack(spacing: 6) {
+                        AvatarView(name: note.authorName, size: 20, imageURL: authorImageURL(note.authorId))
+                        Text(note.authorName)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .card()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                Haptic.light()
+                noteToEdit = note
+            } label: {
+                Label("수정", systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                Haptic.medium()
+                Task { try? await appState.deleteNote(note.id) }
+            } label: {
+                Label("삭제", systemImage: "trash")
+            }
+        }
+    }
+
+    /// 노트 작성자의 프로필 이미지 — 현재 멤버 목록에서 찾음(탈퇴했으면 nil → 이니셜 아바타).
+    private func authorImageURL(_ authorId: String) -> String? {
+        appState.members.first(where: { $0.id == authorId })?.profileImageURL
     }
 
     // MARK: - 모임 행
@@ -419,7 +555,7 @@ struct HistoryView: View {
         .background(Capsule().fill(tint.opacity(0.12)))
     }
 
-    /// `weeksAgo`주 전이 모임 있던 주인지. ISO 8601 월~일 기준.
+    /// `weeksAgo`주 전이 "채워진" 주인지 — 모임 또는 한 겹(노트)이 하나라도 있으면 채움. ISO 8601 월~일 기준.
     private func weekHasMeeting(weeksAgo: Int) -> Bool {
         var calendar = Calendar(identifier: .gregorian)
         calendar.firstWeekday = 2
@@ -429,11 +565,16 @@ struct HistoryView: View {
             return false
         }
         let key = weekKey(for: targetWeek, calendar: calendar)
-        return meetings.contains { meeting in
+        let hasMeeting = meetings.contains { meeting in
             meeting.status != .cancelled
-                && meeting.meetingDate <= Date()
+                && meeting.meetingDate <= now
                 && weekKey(for: meeting.meetingDate, calendar: calendar) == key
         }
+        let hasNote = notes.contains { note in
+            note.date <= now
+                && weekKey(for: note.date, calendar: calendar) == key
+        }
+        return hasMeeting || hasNote
     }
 
     private func weekKey(for date: Date, calendar: Calendar) -> Int {

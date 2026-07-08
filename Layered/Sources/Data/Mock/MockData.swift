@@ -217,4 +217,28 @@ enum MockData {
             updatedAt: daysFromNow(-4, hour: 20)
         ),
     ]
+
+    // MARK: - Notes (한 겹) — 모임 없이 그냥 남긴 가벼운 메모
+    static let notes: [Note] = [
+        Note(
+            id: "note-001",
+            authorId: "user-003",
+            authorName: "아빠",
+            text: "이번 주는 각자 바빠서 못 모였지만, 아빠가 김치찌개 끓여줌 🍲",
+            photoURL: nil,
+            date: daysFromNow(-9, hour: 19),
+            createdAt: daysFromNow(-9, hour: 19),
+            updatedAt: daysFromNow(-9, hour: 19)
+        ),
+        Note(
+            id: "note-002",
+            authorId: "user-001",
+            authorName: "상환",
+            text: "다 같이 저녁 먹으면서 예전 앨범 구경함. 별 거 아닌데 좋았다.",
+            photoURL: "https://picsum.photos/seed/note002/800/800",
+            date: daysFromNow(-16, hour: 21),
+            createdAt: daysFromNow(-16, hour: 21),
+            updatedAt: daysFromNow(-16, hour: 21)
+        ),
+    ]
 }

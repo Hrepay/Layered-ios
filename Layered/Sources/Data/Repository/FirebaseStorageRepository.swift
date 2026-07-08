@@ -15,6 +15,11 @@ final class FirebaseStorageRepository: StorageRepositoryProtocol {
         return try await uploadData(imageData, path: path)
     }
 
+    func uploadNotePhoto(familyId: String, noteId: String, imageData: Data) async throws -> String {
+        let path = "families/\(familyId)/notes/\(noteId)/photo.jpg"
+        return try await uploadData(imageData, path: path)
+    }
+
     func deleteImage(path: String) async throws {
         let ref = storage.reference().child(path)
         try await ref.delete()

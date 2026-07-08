@@ -33,6 +33,8 @@ final class AppState {
     var currentFamily: Family?
     var members: [Member] = []
     var meetings: [Meeting] = []
+    /// 모임과 별개로 남긴 가벼운 메모("한 겹"). date desc 정렬로 유지.
+    var notes: [Note] = []
     var myRecordedMeetingIds: Set<String> = []
     var averageRating: Double = 0
     var consecutiveWeeks: Int = 0
@@ -49,6 +51,7 @@ final class AppState {
     nonisolated private var _meetingRepository: MeetingRepositoryProtocol?
     nonisolated private var _pollRepository: PollRepositoryProtocol?
     nonisolated private var _recordRepository: RecordRepositoryProtocol?
+    nonisolated private var _noteRepository: NoteRepositoryProtocol?
     nonisolated private var _storageRepository: StorageRepositoryProtocol?
 
     private var authRepository: AuthRepositoryProtocol {
@@ -93,6 +96,12 @@ final class AppState {
         }
         return _recordRepository!
     }
+    var noteRepository: NoteRepositoryProtocol {
+        if _noteRepository == nil {
+            _noteRepository = shouldUseMock ? MockNoteRepository() : FirebaseNoteRepository()
+        }
+        return _noteRepository!
+    }
     var storageRepository: StorageRepositoryProtocol {
         if _storageRepository == nil {
             _storageRepository = shouldUseMock ? MockStorageRepository() : FirebaseStorageRepository()
@@ -115,6 +124,7 @@ final class AppState {
                 currentFamily = MockData.family
                 members = MockData.members
                 meetings = MockData.meetings
+                notes = MockData.notes
                 myRecordedMeetingIds = []
                 averageRating = 4.8
                 consecutiveWeeks = 6
@@ -279,6 +289,7 @@ final class AppState {
         do {
             await refreshCurrentFamily()
             meetings = try await meetingRepository.getMeetings(familyId: familyId)
+            notes = (try? await noteRepository.getNotes(familyId: familyId)) ?? []
             await refreshMembers()
             await checkMyRecords()
         } catch {
@@ -327,8 +338,15 @@ final class AppState {
                 .filter { $0.meetingDate <= now && $0.status != .cancelled }
                 .map { calendar.component(.weekOfYear, from: $0.meetingDate) * 10000 + calendar.component(.yearForWeekOfYear, from: $0.meetingDate) }
         )
+        // 한 겹(노트)도 그 주를 "채운" 걸로 인정 — 모임 없이 메모만 남긴 주도 연속 유지.
+        let noteWeeks = Set(
+            notes
+                .filter { $0.date <= now }
+                .map { calendar.component(.weekOfYear, from: $0.date) * 10000 + calendar.component(.yearForWeekOfYear, from: $0.date) }
+        )
+        let activeWeeks = meetingWeeks.union(noteWeeks)
 
-        guard !meetingWeeks.isEmpty else { return 0 }
+        guard !activeWeeks.isEmpty else { return 0 }
 
         // 현재 주부터 과거로 연속 체크
         // 이번 주에 아직 진행된 모임이 없으면(예: 계획만 있고 날짜가 미래) 지난 주부터 시작
@@ -337,7 +355,7 @@ final class AppState {
 
         let currentKey = calendar.component(.weekOfYear, from: now) * 10000
             + calendar.component(.yearForWeekOfYear, from: now)
-        if !meetingWeeks.contains(currentKey) {
+        if !activeWeeks.contains(currentKey) {
             guard let lastWeek = calendar.date(byAdding: .weekOfYear, value: -1, to: now) else {
                 return 0
             }
@@ -349,7 +367,7 @@ final class AppState {
             let year = calendar.component(.yearForWeekOfYear, from: checkDate)
             let key = week * 10000 + year
 
-            if meetingWeeks.contains(key) {
+            if activeWeeks.contains(key) {
                 streak += 1
                 guard let newDate = calendar.date(byAdding: .weekOfYear, value: -1, to: checkDate) else { break }
                 checkDate = newDate
@@ -607,6 +625,41 @@ final class AppState {
         try await recordRepository.deleteRecord(familyId: familyId, meetingId: meetingId, recordId: recordId)
     }
 
+    // MARK: - 한 겹(노트) CRUD
+    @MainActor
+    func refreshNotes() async {
+        guard let familyId = currentFamily?.id else { return }
+        if let loaded = try? await noteRepository.getNotes(familyId: familyId) {
+            notes = loaded
+            // 노트가 연속 주에 반영되므로 새로고침 때마다 재계산.
+            consecutiveWeeks = calcConsecutiveWeeks()
+        }
+    }
+
+    @MainActor
+    func createNote(_ note: Note) async throws -> Note {
+        guard let familyId = currentFamily?.id else { throw AppStateError.noFamily }
+        let created = try await noteRepository.createNote(familyId: familyId, note: note)
+        await refreshNotes()
+        return created
+    }
+
+    @MainActor
+    func updateNote(_ note: Note) async throws {
+        guard let familyId = currentFamily?.id else { throw AppStateError.noFamily }
+        try await noteRepository.updateNote(familyId: familyId, note: note)
+        await refreshNotes()
+    }
+
+    @MainActor
+    func deleteNote(_ noteId: String) async throws {
+        guard let familyId = currentFamily?.id else { throw AppStateError.noFamily }
+        isLoading = true
+        defer { isLoading = false }
+        try await noteRepository.deleteNote(familyId: familyId, noteId: noteId)
+        await refreshNotes()
+    }
+
     // MARK: - 구성원 관리
     func removeMember(_ memberId: String) async throws {
         guard let familyId = currentFamily?.id else { throw AppStateError.noFamily }
@@ -639,6 +692,7 @@ final class AppState {
         currentFamily = nil
         members = []
         meetings = []
+        notes = []
         authState = .familySetup
     }
 
@@ -745,6 +799,7 @@ final class AppState {
         currentFamily = nil
         members = []
         meetings = []
+        notes = []
         authState = .familySetup
     }
 
@@ -829,6 +884,7 @@ final class AppState {
         currentFamily = nil
         members = []
         meetings = []
+        notes = []
         authState = .login
     }
 
@@ -879,6 +935,7 @@ final class AppState {
         currentFamily = nil
         members = []
         meetings = []
+        notes = []
         authState = .login
     }
 }
