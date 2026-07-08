@@ -391,8 +391,15 @@ struct HomeView: View {
     @ViewBuilder
     private func heroBackground(_ meeting: Meeting) -> some View {
         if let metadata = meetingLinkMetadata {
-            LinkPreviewImage(metadata: metadata)
-                .scaledToFill()
+            // Color.clear 위에 overlay로 이미지를 얹고 clipped() — scaledToFill의 가로 넘침이
+            // 부모 레이아웃 폭으로 전파되지 않게 격리. (LinkPreviewImage에 .scaledToFill을 직접
+            // 걸면 넘친 폭이 상위로 새어 홈 전체가 가로로 밀리는 버그가 있었음.)
+            Color.clear
+                .overlay {
+                    LinkPreviewImage(metadata: metadata)
+                        .scaledToFill()
+                }
+                .clipped()
         } else {
             // 활동 아이콘 워터마크 + 따뜻한 그라데이션
             ZStack {
