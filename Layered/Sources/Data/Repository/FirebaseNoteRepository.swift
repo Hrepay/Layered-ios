@@ -16,6 +16,7 @@ final class FirebaseNoteRepository: NoteRepositoryProtocol {
             "authorId": note.authorId,
             "authorName": note.authorName,
             "text": note.text,
+            "participantIds": note.participantIds,
             "date": Timestamp(date: note.date),
             "createdAt": Timestamp(date: Date()),
             "updatedAt": Timestamp(date: Date()),
@@ -34,6 +35,7 @@ final class FirebaseNoteRepository: NoteRepositoryProtocol {
             authorName: note.authorName,
             text: note.text,
             photoURL: note.photoURL,
+            participantIds: note.participantIds,
             date: note.date,
             createdAt: Date(),
             updatedAt: Date()
@@ -52,6 +54,7 @@ final class FirebaseNoteRepository: NoteRepositoryProtocol {
     func updateNote(familyId: String, note: Note) async throws {
         var data: [String: Any] = [
             "text": note.text,
+            "participantIds": note.participantIds,
             "date": Timestamp(date: note.date),
             "updatedAt": Timestamp(date: Date()),
         ]
@@ -87,6 +90,7 @@ final class FirebaseNoteRepository: NoteRepositoryProtocol {
             authorName: data["authorName"] as? String ?? "",
             text: data["text"] as? String ?? "",
             photoURL: data["photoURL"] as? String,
+            participantIds: data["participantIds"] as? [String] ?? [],
             date: (data["date"] as? Timestamp)?.dateValue() ?? Date(),
             createdAt: (data["createdAt"] as? Timestamp)?.dateValue() ?? Date(),
             updatedAt: (data["updatedAt"] as? Timestamp)?.dateValue() ?? Date()

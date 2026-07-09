@@ -12,6 +12,8 @@ struct CreateNoteView: View {
     @State private var text: String
     @State private var date: Date
     @State private var photo: PhotoSlot?
+    /// 함께한 사람. 비어 있으면 작성자만.
+    @State private var participantIds: [String]
     /// 수정 모드에서 기존 사진을 지운 경우 Storage 정리 대상 URL.
     @State private var removedExistingURL: String?
     @State private var showImagePicker = false
@@ -34,6 +36,7 @@ struct CreateNoteView: View {
         _text = State(initialValue: existingNote?.text ?? "")
         _date = State(initialValue: existingNote?.date ?? Date())
         _photo = State(initialValue: existingNote?.photoURL.map { PhotoSlot(content: .existing(url: $0)) })
+        _participantIds = State(initialValue: existingNote?.participantIds ?? [])
     }
 
     private var isValid: Bool {
@@ -52,6 +55,7 @@ struct CreateNoteView: View {
                 || !Calendar.current.isDate(date, inSameDayAs: existing.date)
                 || keptURL != existing.photoURL
                 || hasNewPhoto
+                || Set(participantIds) != Set(existing.participantIds)
         } else {
             return !text.isEmpty || photo != nil
         }
@@ -111,6 +115,20 @@ struct CreateNoteView: View {
                         )
                         .labelsHidden()
                         .environment(\.locale, Locale(identifier: "ko_KR"))
+                    }
+
+                    // MARK: - 함께한 사람
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("함께한 사람")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+
+                        VStack(spacing: 8) {
+                            ForEach(appState.members) { member in
+                                participantRow(member)
+                            }
+                        }
                     }
 
                     // MARK: - 메모
@@ -202,6 +220,12 @@ struct CreateNoteView: View {
             }
         }
         .loadingOverlay(isUploading)
+        .onAppear {
+            // 신규 작성이면 작성자 본인을 기본 참여자로 선택.
+            if !isEditMode, participantIds.isEmpty, let uid = appState.currentUser?.id {
+                participantIds = [uid]
+            }
+        }
         .sheet(isPresented: $showImagePicker) {
             MultiImagePicker(maxSelection: 1, selectedImages: Binding(
                 get: { [] },
@@ -241,6 +265,43 @@ struct CreateNoteView: View {
         photo = nil
     }
 
+    // MARK: - 참여자 선택
+    @ViewBuilder
+    private func participantRow(_ member: Member) -> some View {
+        let on = participantIds.contains(member.id)
+        Button {
+            Haptic.light()
+            toggleParticipant(member.id)
+        } label: {
+            HStack(spacing: 10) {
+                AvatarView(name: member.name, size: 32, imageURL: member.profileImageURL)
+                Text(member.name)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                Spacer()
+                Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(on ? AppColors.secondary : Color(.systemGray4))
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(on ? AppColors.secondarySubtle : Color(.secondarySystemBackground))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func toggleParticipant(_ id: String) {
+        if let idx = participantIds.firstIndex(of: id) {
+            participantIds.remove(at: idx)
+        } else {
+            participantIds.append(id)
+        }
+    }
+
     // MARK: - Save
     private func save() async {
         isUploading = true
@@ -274,6 +335,7 @@ struct CreateNoteView: View {
             authorName: appState.currentUser?.name ?? "",
             text: text.trimmingCharacters(in: .whitespacesAndNewlines),
             photoURL: photoURL,
+            participantIds: participantIds,
             date: date,
             createdAt: Date(),
             updatedAt: Date()
@@ -312,6 +374,7 @@ struct CreateNoteView: View {
             authorName: existing.authorName,
             text: text.trimmingCharacters(in: .whitespacesAndNewlines),
             photoURL: finalURL,
+            participantIds: participantIds,
             date: date,
             createdAt: existing.createdAt,
             updatedAt: Date()

@@ -10,6 +10,8 @@ struct Note: Identifiable, Codable {
     var text: String
     /// 선택 사진 1장. 없으면 nil.
     var photoURL: String?
+    /// 이 한 겹에 함께한 가족 id. 비어 있으면 작성자만.
+    var participantIds: [String]
     /// 이 메모가 가리키는 날 (기본 오늘). 히스토리 타임라인·연속 주 계산의 기준.
     var date: Date
     let createdAt: Date

@@ -276,13 +276,7 @@ struct HistoryView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
 
-                    HStack(spacing: 6) {
-                        AvatarView(name: note.authorName, size: 20, imageURL: authorImageURL(note.authorId))
-                        Text(note.authorName)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                    }
+                    noteParticipantLine(note)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .card()
@@ -306,9 +300,49 @@ struct HistoryView: View {
         }
     }
 
-    /// 노트 작성자의 프로필 이미지 — 현재 멤버 목록에서 찾음(탈퇴했으면 nil → 이니셜 아바타).
-    private func authorImageURL(_ authorId: String) -> String? {
-        appState.members.first(where: { $0.id == authorId })?.profileImageURL
+    /// 노트 참여자 아바타 + 라벨. 모임 행과 동일하게 작성자를 맨 앞에 두고 링으로 강조.
+    @ViewBuilder
+    private func noteParticipantLine(_ note: Note) -> some View {
+        let people = noteParticipants(note)
+        HStack(spacing: 6) {
+            HStack(spacing: -4) {
+                if people.isEmpty {
+                    AvatarView(name: note.authorName, size: 20, imageURL: nil)
+                } else {
+                    ForEach(people.prefix(5)) { member in
+                        AvatarView(name: member.name, size: 20, imageURL: member.profileImageURL)
+                            .overlay(
+                                Circle().stroke(
+                                    member.id == note.authorId ? AppColors.secondary : Color(.systemBackground),
+                                    lineWidth: member.id == note.authorId ? 1.5 : 1
+                                )
+                            )
+                    }
+                }
+            }
+            Text(noteParticipantsLabel(note, people: people))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// participantIds(없으면 작성자만) → 멤버 목록. 작성자를 맨 앞으로.
+    private func noteParticipants(_ note: Note) -> [Member] {
+        let ids = note.participantIds.isEmpty ? [note.authorId] : note.participantIds
+        var people = appState.members.filter { ids.contains($0.id) }
+        if let author = people.first(where: { $0.id == note.authorId }) {
+            people = [author] + people.filter { $0.id != note.authorId }
+        }
+        return people
+    }
+
+    private func noteParticipantsLabel(_ note: Note, people: [Member]) -> String {
+        guard !people.isEmpty else { return note.authorName }
+        let names = people.map(\.name)
+        if names.count <= 3 { return names.joined(separator: " · ") }
+        return "\(names.prefix(3).joined(separator: " · ")) 외 \(names.count - 3)명"
     }
 
     // MARK: - 모임 행
