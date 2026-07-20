@@ -21,6 +21,7 @@ struct NotificationSettingsView: View {
     @State private var calendarSyncOn = false
     @State private var showCalendarPermissionAlert = false
     @State private var calendarSyncBusy = false
+    @State private var showCalendarOffDialog = false
 
     private var masterEnabled: Bool {
         systemAuthorized && notificationsEnabled
@@ -144,6 +145,18 @@ struct NotificationSettingsView: View {
                 && CalendarSyncService.shared.hasAccess
             isLoaded = true
         }
+        .confirmationDialog(
+            "겹겹이 등록한 캘린더 일정을 삭제할까요?",
+            isPresented: $showCalendarOffDialog,
+            titleVisibility: .visible
+        ) {
+            Button("일정 삭제", role: .destructive) {
+                CalendarSyncService.shared.purgeAllEvents()
+            }
+            Button("일정 유지", role: .cancel) {}
+        } message: {
+            Text("동기화를 꺼도 이미 등록된 일정은 남습니다. 삭제를 선택하면 겹겹이 만든 일정만 캘린더에서 제거돼요.")
+        }
         .alert("캘린더 권한이 필요해요", isPresented: $showCalendarPermissionAlert) {
             Button("취소", role: .cancel) {}
             Button("설정 열기") { openSystemSettings() }
@@ -192,7 +205,7 @@ struct NotificationSettingsView: View {
 
     /// 캘린더 동기화 토글 처리.
     /// ON 시: 권한 요청 → 허용되면 UserDefaults ON + 다가오는 모임 backfill.
-    /// OFF 시: UserDefaults OFF만 (기존 캘린더 이벤트는 보존 — 사용자 데이터 함부로 안 지움).
+    /// OFF 시: UserDefaults OFF + 등록된 일정 삭제 여부를 사용자에게 확인.
     private func handleCalendarToggle(_ newValue: Bool) {
         Haptic.light()
         if newValue {
@@ -216,6 +229,7 @@ struct NotificationSettingsView: View {
         } else {
             CalendarSyncService.shared.isEnabled = false
             calendarSyncOn = false
+            showCalendarOffDialog = true
         }
     }
 }

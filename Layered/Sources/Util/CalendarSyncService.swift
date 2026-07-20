@@ -96,23 +96,18 @@ final class CalendarSyncService {
     }
 
     /// 매핑된 캘린더 이벤트를 제거. 매핑 없거나 이벤트 없으면 no-op.
+    /// 토글 OFF 상태여도 권한만 있으면 우리가 만든 이벤트는 지운다 —
+    /// 모임 삭제 시 유령 일정이 캘린더에 영구히 남는 것 방지.
     func removeEvent(for meetingId: String) {
-        guard isEnabled, hasAccess else {
-            // 토글 OFF여도 매핑은 정리해서 stale 안 남게
-            removeMapping(meetingId: meetingId)
-            return
-        }
-        guard let eventId = eventMapping[meetingId],
-              let event = eventStore.event(withIdentifier: eventId) else {
-            removeMapping(meetingId: meetingId)
-            return
-        }
+        defer { removeMapping(meetingId: meetingId) }
+        guard hasAccess,
+              let eventId = eventMapping[meetingId],
+              let event = eventStore.event(withIdentifier: eventId) else { return }
         do {
             try eventStore.remove(event, span: .thisEvent, commit: true)
         } catch {
             // silent fail
         }
-        removeMapping(meetingId: meetingId)
     }
 
     /// 여러 모임을 일괄 sync — backfill용. 다가오는 모임 위주.
