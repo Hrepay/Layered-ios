@@ -19,7 +19,7 @@ final class MockFamilyRepository: FamilyRepositoryProtocol {
     func verifyInviteCode(inviteCode: String) async throws -> Family {
         MockData.family
     }
-    func joinFamily(familyId: String, userId: String, userName: String) async throws {}
+    func joinFamily(familyId: String, userId: String, userName: String, inviteCode: String) async throws {}
     func updateRotationMode(familyId: String, mode: String) async throws {}
     func updateCurrentPlannerIndex(familyId: String, index: Int) async throws {}
 }

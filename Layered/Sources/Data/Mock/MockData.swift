@@ -27,7 +27,7 @@ enum MockData {
         id: "family-001",
         name: "황씨네",
         inviteCode: "HRPY26",
-        inviteCodeExpiresAt: Date().addingTimeInterval(1500),
+        inviteCodeExpiresAt: Date().addingTimeInterval(AppConstants.Family.inviteCodeLifetime),
         adminId: "user-001",
         memberCount: 4,
         currentPlannerIndex: 0,

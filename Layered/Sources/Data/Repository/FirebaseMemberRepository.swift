@@ -25,18 +25,18 @@ final class FirebaseMemberRepository: MemberRepositoryProtocol {
     }
 
     func removeMember(familyId: String, memberId: String) async throws {
-        // memberCount 감소 (구성원인 동안 먼저 실행)
-        try await db.collection("families").document(familyId).updateData([
-            "memberCount": FieldValue.increment(Int64(-1))
-        ])
-
-        // member 삭제
-        try await membersRef(familyId: familyId).document(memberId).delete()
-
-        // User의 familyId 제거
-        try await db.collection("users").document(memberId).updateData([
-            "familyId": FieldValue.delete()
-        ])
+        // 카운트 감소·멤버 삭제·familyId 해제를 원자화 — 중간 실패로 카운트가 어긋나지 않게.
+        let batch = db.batch()
+        batch.updateData(
+            ["memberCount": FieldValue.increment(Int64(-1))],
+            forDocument: db.collection("families").document(familyId)
+        )
+        batch.deleteDocument(membersRef(familyId: familyId).document(memberId))
+        batch.updateData(
+            ["familyId": FieldValue.delete()],
+            forDocument: db.collection("users").document(memberId)
+        )
+        try await batch.commit()
     }
 
     func updateRotationOrder(familyId: String, memberOrders: [(memberId: String, order: Int)]) async throws {
