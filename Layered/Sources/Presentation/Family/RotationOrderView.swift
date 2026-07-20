@@ -131,7 +131,7 @@ struct RotationOrderView: View {
                 .fontWeight(.semibold)
                 .foregroundStyle(.secondary)
 
-            Text("드래그하여 순서를 변경하세요")
+            Text("가입한 순서대로 매주 자동으로 돌아가요")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 
@@ -152,9 +152,6 @@ struct RotationOrderView: View {
                             .font(.body)
 
                         Spacer()
-
-                        Image(systemName: "line.3.horizontal")
-                            .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 10)
                     .padding(.horizontal, 16)
@@ -166,7 +163,7 @@ struct RotationOrderView: View {
             }
             .background(Color(.secondarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 16))
-            // TODO: Phase 3에서 드래그 정렬 구현
+            // TODO: Phase 3에서 드래그 정렬 구현 — 구현 전까진 드래그를 암시하는 UI 금지
         }
     }
 

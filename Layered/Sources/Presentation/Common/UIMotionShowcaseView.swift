@@ -1,5 +1,8 @@
 import SwiftUI
 
+// Xcode 프리뷰 전용 데모 — 릴리스 바이너리에서 제외
+#if DEBUG
+
 /// 이번에 추가된 4가지 UI 모션을 BEFORE / AFTER로 나란히 비교해서 보는 데모 화면.
 /// - 별점 단계별 햅틱
 /// - 투표 결과 막대 reveal
@@ -495,3 +498,5 @@ private struct LiquidGlassSection: View {
 #Preview("UI 모션 비교") {
     UIMotionShowcaseView()
 }
+
+#endif

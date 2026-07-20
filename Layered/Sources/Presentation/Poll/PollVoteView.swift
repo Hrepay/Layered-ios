@@ -127,11 +127,12 @@ struct PollVoteView: View {
                                                 HStack(spacing: 4) {
                                                     Image(systemName: "link")
                                                         .font(.caption2)
+                                                        .foregroundStyle(AppColors.primary)
                                                     Text(url.host ?? urlString)
                                                         .font(.caption)
                                                         .lineLimit(1)
+                                                        .foregroundStyle(.primary)
                                                 }
-                                                .foregroundStyle(AppColors.primary)
                                                 .padding(.horizontal, 10)
                                                 .padding(.vertical, 5)
                                                 .background(

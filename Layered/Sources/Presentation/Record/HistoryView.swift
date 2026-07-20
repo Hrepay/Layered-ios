@@ -397,18 +397,20 @@ struct HistoryView: View {
                             HStack(spacing: 3) {
                                 Image(systemName: "checkmark.circle.fill")
                                     .font(.caption2)
+                                    .foregroundStyle(AppColors.secondary)
                                 Text("기록 완료")
                                     .font(.caption2)
+                                    .foregroundStyle(.secondary)
                             }
-                            .foregroundStyle(AppColors.secondary)
                         } else if meeting.meetingDate <= Date() {
                             HStack(spacing: 3) {
-                                Image(systemName: "pencil.circle")
+                                Image(systemName: "pencil.circle.fill")
                                     .font(.caption2)
+                                    .foregroundStyle(AppColors.warning)
                                 Text("미기록")
                                     .font(.caption2)
+                                    .foregroundStyle(.secondary)
                             }
-                            .foregroundStyle(AppColors.warning)
                         }
                     }
                 }

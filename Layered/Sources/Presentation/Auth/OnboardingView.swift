@@ -44,7 +44,7 @@ struct OnboardingView: View {
                         onComplete()
                     }
                     .font(.subheadline)
-                    .foregroundStyle(AppColors.secondary)
+                    .foregroundStyle(.secondary)
                 }
             }
             .frame(height: 44)

@@ -503,7 +503,7 @@ struct HomeView: View {
                 Text(formatDate(meeting.meetingDate))
                     .font(.subheadline)
                     .fontWeight(.bold)
-                    .foregroundStyle(Color(hex: "6B3A2A"))
+                    .foregroundStyle(.secondary)
                     .padding(.bottom, 6)
 
                 // 장소 + 활동 아이콘들

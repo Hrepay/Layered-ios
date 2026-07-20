@@ -143,6 +143,7 @@ struct RecordDetailView: View {
                                         HStack(spacing: 8) {
                                             ForEach(record.photos, id: \.self) { url in
                                                 Button {
+                                                    Haptic.light()
                                                     fullScreenImageURL = url
                                                 } label: {
                                                     CachedAsyncImage(url: URL(string: url))

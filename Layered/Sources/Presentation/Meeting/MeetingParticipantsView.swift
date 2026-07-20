@@ -171,7 +171,7 @@ struct MeetingParticipantsView: View {
         HStack(spacing: 10) {
             summaryChip(icon: "checkmark.circle.fill", color: AppColors.secondary, label: "확정", count: goingCount)
             summaryChip(icon: "questionmark.circle.fill", color: AppColors.warning, label: "미정", count: pendingCount)
-            summaryChip(icon: "xmark.circle.fill", color: Color.red, label: "불참", count: notGoingCount)
+            summaryChip(icon: "xmark.circle.fill", color: AppColors.danger, label: "불참", count: notGoingCount)
         }
     }
 
@@ -254,7 +254,7 @@ struct MeetingParticipantsView: View {
         case .going:
             return BadgeView(text: "참석 확정", color: AppColors.secondary)
         case .notGoing:
-            return BadgeView(text: "불참", color: Color.red)
+            return BadgeView(text: "불참", color: AppColors.danger)
         case nil:
             return BadgeView(text: "미정", color: AppColors.warning)
         }
@@ -278,7 +278,7 @@ struct MeetingParticipantsView: View {
                 title: "불참",
                 icon: "xmark.circle.fill",
                 isActive: current == .notGoing,
-                activeColor: Color.red
+                activeColor: AppColors.danger
             ) {
                 await toggleMyAttendance(to: .notGoing)
             }
@@ -367,7 +367,7 @@ struct MeetingParticipantsView: View {
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            Image(systemName: "person.3")
+            Image(systemName: "person.3.fill")
                 .font(.largeTitle)
                 .foregroundStyle(.secondary)
             Text("참여 중인 인원이 없어요")

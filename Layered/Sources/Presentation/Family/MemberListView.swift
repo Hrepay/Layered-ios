@@ -93,12 +93,13 @@ struct MemberListView: View {
 
             if member.role != .admin && family?.adminId == currentUserId {
                 Button(action: {
+                    Haptic.medium()
                     memberToKick = member
                     showKickAlert = true
                 }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.body)
-                        .foregroundStyle(.red.opacity(0.5))
+                        .foregroundStyle(AppColors.danger.opacity(0.5))
                 }
             }
         }

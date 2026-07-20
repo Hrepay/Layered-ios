@@ -115,6 +115,7 @@ struct CreateRecordView: View {
                                             .clipShape(RoundedRectangle(cornerRadius: 12))
 
                                         Button {
+                                            Haptic.light()
                                             removePhoto(at: index)
                                         } label: {
                                             Image(systemName: "xmark.circle.fill")
@@ -288,6 +289,7 @@ struct CreateRecordView: View {
 
             HStack(spacing: 10) {
                 Button {
+                    Haptic.light()
                     Task { await confirmAttended() }
                 } label: {
                     Text("예, 참석했어요")

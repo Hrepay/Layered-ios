@@ -136,7 +136,10 @@ struct MemberActivitySheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("닫기") { onClose() }
+                    Button("닫기") {
+                        Haptic.light()
+                        onClose()
+                    }
                 }
             }
             .task { await loadMemberRecords() }

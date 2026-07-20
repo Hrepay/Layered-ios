@@ -19,6 +19,10 @@ enum AppColors {
     static let warning = adaptive(light: "F5A623", dark: "FFB850")
     static let warningSubtle = adaptive(light: "FFF4E0", dark: "3D2E10")
 
+    // Danger - Soft Red (불참·삭제 등 부정 상태. 시스템 .red 대신 사용)
+    static let danger = adaptive(light: "E05E5E", dark: "F08080")
+    static let dangerSubtle = adaptive(light: "FBEAEA", dark: "3D1F1F")
+
     private static func adaptive(light: String, dark: String) -> Color {
         Color(UIColor { trait in
             trait.userInterfaceStyle == .dark

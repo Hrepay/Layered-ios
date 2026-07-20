@@ -1,5 +1,8 @@
 import SwiftUI
 
+// Xcode 프리뷰 전용 데모 — 릴리스 바이너리에서 제외
+#if DEBUG
+
 struct ColorPalettePreview: View {
     var body: some View {
         ScrollView {
@@ -235,3 +238,5 @@ struct ColorPalettePreview: View {
 #Preview("컬러 팔레트") {
     ColorPalettePreview()
 }
+
+#endif

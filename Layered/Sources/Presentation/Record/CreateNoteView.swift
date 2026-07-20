@@ -183,6 +183,7 @@ struct CreateNoteView: View {
                                     .clipShape(RoundedRectangle(cornerRadius: 14))
 
                                 Button {
+                                    Haptic.light()
                                     removePhoto()
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")

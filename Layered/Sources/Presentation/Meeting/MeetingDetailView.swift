@@ -53,7 +53,7 @@ struct MeetingDetailView: View {
     private func attendanceColor(for member: Member) -> Color {
         switch meeting.attendanceStatus(for: member.id) {
         case .going: return AppColors.secondary
-        case .notGoing: return Color.red
+        case .notGoing: return AppColors.danger
         case nil: return AppColors.warning
         }
     }
@@ -482,11 +482,12 @@ struct MeetingDetailView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "plus.circle.fill")
+                                .foregroundStyle(AppColors.primary)
                             Text("후보 추가")
+                                .foregroundStyle(.primary)
                         }
                         .font(.subheadline)
                         .fontWeight(.medium)
-                        .foregroundStyle(AppColors.primary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
                         .background(AppColors.primarySubtle)
@@ -712,7 +713,7 @@ struct MeetingDetailView: View {
         case .planning: return AppColors.warning
         case .confirmed: return AppColors.secondary
         case .completed: return Color.gray
-        case .cancelled: return Color.red
+        case .cancelled: return AppColors.danger
         }
     }
 

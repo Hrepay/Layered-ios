@@ -19,7 +19,9 @@ struct PlacesMiniMap: View {
             dedup[meeting.place] = CLLocationCoordinate2D(latitude: lat, longitude: lng)
             order.append(meeting.place)
         }
-        return order.map { (name: $0, coordinate: dedup[$0]!) }
+        return order.compactMap { name in
+            dedup[name].map { (name: name, coordinate: $0) }
+        }
     }
 
     private var region: MKCoordinateRegion {

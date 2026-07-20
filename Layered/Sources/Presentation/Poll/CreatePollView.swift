@@ -85,7 +85,7 @@ struct CreatePollView: View {
                                         } label: {
                                             Image(systemName: "minus.circle.fill")
                                                 .font(.title3)
-                                                .foregroundStyle(.red)
+                                                .foregroundStyle(AppColors.danger)
                                         }
                                     }
                                 }
@@ -106,11 +106,12 @@ struct CreatePollView: View {
                                         HStack(spacing: 4) {
                                             Image(systemName: "link")
                                                 .font(.caption2)
+                                                .foregroundStyle(AppColors.primary)
                                             Text(url.host ?? url.absoluteString)
                                                 .font(.caption)
                                                 .lineLimit(1)
+                                                .foregroundStyle(.primary)
                                         }
-                                        .foregroundStyle(AppColors.primary)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 5)
                                         .background(
@@ -130,11 +131,12 @@ struct CreatePollView: View {
                             } label: {
                                 HStack(spacing: 6) {
                                     Image(systemName: "plus.circle.fill")
+                                        .foregroundStyle(AppColors.primary)
                                     Text("선택지 추가")
+                                        .foregroundStyle(.primary)
                                 }
                                 .font(.subheadline)
                                 .fontWeight(.medium)
-                                .foregroundStyle(AppColors.primary)
                             }
                             .padding(.top, 4)
                         }
