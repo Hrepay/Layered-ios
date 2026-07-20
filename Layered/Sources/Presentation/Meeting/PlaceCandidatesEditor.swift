@@ -26,6 +26,9 @@ struct PlaceCandidatesEditor: View {
     var minCount: Int = 2
     var maxCount: Int = 4
 
+    /// 장소 검색 시트가 채울 후보 인덱스. nil이면 시트 닫힘.
+    @State private var searchingIndex: Int?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(candidates.indices, id: \.self) { index in
@@ -35,6 +38,19 @@ struct PlaceCandidatesEditor: View {
                             placeholder: "후보 \(index + 1) 장소명",
                             text: $candidates[index].title
                         )
+
+                        Button {
+                            Haptic.light()
+                            searchingIndex = index
+                        } label: {
+                            Image(systemName: "magnifyingglass")
+                                .font(.body)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(AppColors.primary)
+                                .frame(width: 44, height: 44)
+                                .background(AppColors.primarySubtle)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
 
                         if candidates.count > minCount {
                             Button {
@@ -96,6 +112,19 @@ struct PlaceCandidatesEditor: View {
                     .fontWeight(.medium)
                 }
                 .padding(.top, 4)
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { searchingIndex != nil },
+            set: { if !$0 { searchingIndex = nil } }
+        )) {
+            PlaceSearchSheet { selected in
+                guard let index = searchingIndex,
+                      candidates.indices.contains(index) else { return }
+                candidates[index].title = selected.name
+                if let url = selected.detailURL {
+                    candidates[index].link = url
+                }
             }
         }
     }

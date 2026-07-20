@@ -12,6 +12,10 @@ struct EditMeetingView: View {
     // 단일 장소 모드
     @State private var place: String
     @State private var placeURL: String
+    // 장소 검색으로 선택/기존 저장된 좌표. 장소명을 수동 수정하면 무효화.
+    @State private var placeCoordinate: (latitude: Double, longitude: Double)?
+    @State private var searchSelectedName: String
+    @State private var showPlaceSearch = false
     // 후보 모드
     @State private var useCandidates: Bool
     @State private var candidates: [PlaceCandidateDraft] = []
@@ -64,6 +68,10 @@ struct EditMeetingView: View {
         _date = State(initialValue: meeting.meetingDate)
         _place = State(initialValue: meeting.place)
         _placeURL = State(initialValue: meeting.placeURL ?? "")
+        if let lat = meeting.placeLatitude, let lng = meeting.placeLongitude {
+            _placeCoordinate = State(initialValue: (lat, lng))
+        }
+        _searchSelectedName = State(initialValue: meeting.place)
         _useCandidates = State(initialValue: meeting.hasPoll)
         _isLoadingPoll = State(initialValue: meeting.hasPoll)
         // 기존 활동에서 프리셋 매칭
@@ -175,6 +183,17 @@ struct EditMeetingView: View {
             await loadExistingPoll()
         }
         .swipeBack(onBack: onBack)
+        .sheet(isPresented: $showPlaceSearch) {
+            PlaceSearchSheet { selected in
+                searchSelectedName = selected.name
+                place = selected.name
+                placeCoordinate = (selected.latitude, selected.longitude)
+                if let url = selected.detailURL {
+                    placeURL = url
+                }
+            }
+            .environment(appState)
+        }
         .alert("이미 지난 시점이에요", isPresented: $showPastDateAlert) {
             Button("취소", role: .cancel) {}
             Button("저장") { Task { await performSave() } }
@@ -251,7 +270,28 @@ struct EditMeetingView: View {
                     PlaceCandidatesEditor(candidates: $candidates)
                 }
             } else {
-                AppTextField(placeholder: "장소를 입력해주세요", text: $place)
+                HStack(spacing: 10) {
+                    AppTextField(placeholder: "장소를 입력해주세요", text: $place)
+                        .onChange(of: place) { _, newValue in
+                            // 검색/기존 저장 장소명과 달라지면 좌표가 다른 곳을 가리키므로 무효화
+                            if newValue != searchSelectedName {
+                                placeCoordinate = nil
+                            }
+                        }
+
+                    Button {
+                        Haptic.light()
+                        showPlaceSearch = true
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                            .font(.body)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(AppColors.primary)
+                            .frame(width: 52, height: 52)
+                            .background(AppColors.primarySubtle)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                }
 
                 Text("장소 링크 (선택)")
                     .font(.caption)
@@ -320,10 +360,14 @@ struct EditMeetingView: View {
         if useCandidates {
             updated.place = ""
             updated.placeURL = nil
+            updated.placeLatitude = nil
+            updated.placeLongitude = nil
             updated.hasPoll = true
         } else {
             updated.place = place
             updated.placeURL = placeURL.isEmpty ? nil : placeURL
+            updated.placeLatitude = placeCoordinate?.latitude
+            updated.placeLongitude = placeCoordinate?.longitude
             updated.hasPoll = false
         }
 

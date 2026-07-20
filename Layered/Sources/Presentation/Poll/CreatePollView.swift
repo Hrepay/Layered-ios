@@ -13,6 +13,8 @@ struct CreatePollView: View {
     @State private var question = ""
     @State private var options: [OptionDraft] = [OptionDraft(), OptionDraft()]
     @State private var isAnonymous = false
+    /// 장소 검색 시트가 채울 선택지 인덱스. nil이면 시트 닫힘.
+    @State private var searchingIndex: Int?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -75,6 +77,19 @@ struct CreatePollView: View {
                                         placeholder: "선택지 \(index + 1)",
                                         text: $options[index].title
                                     )
+
+                                    Button {
+                                        Haptic.light()
+                                        searchingIndex = index
+                                    } label: {
+                                        Image(systemName: "magnifyingglass")
+                                            .font(.body)
+                                            .fontWeight(.semibold)
+                                            .foregroundStyle(AppColors.primary)
+                                            .frame(width: 44, height: 44)
+                                            .background(AppColors.primarySubtle)
+                                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    }
 
                                     if options.count > 2 {
                                         Button {
@@ -168,6 +183,19 @@ struct CreatePollView: View {
             }
         }
         .swipeBack(onBack: onBack)
+        .sheet(isPresented: Binding(
+            get: { searchingIndex != nil },
+            set: { if !$0 { searchingIndex = nil } }
+        )) {
+            PlaceSearchSheet { selected in
+                guard let index = searchingIndex,
+                      options.indices.contains(index) else { return }
+                options[index].title = selected.name
+                if let url = selected.detailURL {
+                    options[index].link = url
+                }
+            }
+        }
     }
 
     private var isValid: Bool {

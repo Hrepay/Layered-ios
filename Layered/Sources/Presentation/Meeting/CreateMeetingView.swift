@@ -30,6 +30,10 @@ struct CreateMeetingView: View {
     // 단일 장소 모드
     @State private var place = ""
     @State private var placeURL = ""
+    // 장소 검색으로 선택한 좌표 (히스토리 미니맵에 사용). 장소명을 수동 수정하면 무효화.
+    @State private var placeCoordinate: (latitude: Double, longitude: Double)?
+    @State private var searchSelectedName = ""
+    @State private var showPlaceSearch = false
     // 후보 모드
     @State private var useCandidates = false
     @State private var candidates: [PlaceCandidateDraft] = [PlaceCandidateDraft(), PlaceCandidateDraft()]
@@ -84,8 +88,8 @@ struct CreateMeetingView: View {
                         plannerName: appState.currentUser?.name ?? "",
                         meetingDate: date,
                         place: savedPlace,
-                        placeLatitude: nil,
-                        placeLongitude: nil,
+                        placeLatitude: useCandidates ? nil : placeCoordinate?.latitude,
+                        placeLongitude: useCandidates ? nil : placeCoordinate?.longitude,
                         placeURL: savedPlaceURL,
                         activity: finalActivity,
                         status: .planning,
@@ -167,6 +171,17 @@ struct CreateMeetingView: View {
                 .padding(.bottom, 24)
             }
         }
+        .sheet(isPresented: $showPlaceSearch) {
+            PlaceSearchSheet { selected in
+                searchSelectedName = selected.name
+                place = selected.name
+                placeCoordinate = (selected.latitude, selected.longitude)
+                if let url = selected.detailURL {
+                    placeURL = url
+                }
+            }
+            .environment(appState)
+        }
         .alert("저장되지 않아요", isPresented: $showExitAlert) {
             Button("취소", role: .cancel) {}
             Button("나가기", role: .destructive) { onBack() }
@@ -208,7 +223,28 @@ struct CreateMeetingView: View {
             if useCandidates {
                 PlaceCandidatesEditor(candidates: $candidates)
             } else {
-                AppTextField(placeholder: "장소를 입력해주세요", text: $place)
+                HStack(spacing: 10) {
+                    AppTextField(placeholder: "장소를 입력해주세요", text: $place)
+                        .onChange(of: place) { _, newValue in
+                            // 검색으로 채운 뒤 수동 수정하면 좌표가 다른 곳을 가리키므로 무효화
+                            if newValue != searchSelectedName {
+                                placeCoordinate = nil
+                            }
+                        }
+
+                    Button {
+                        Haptic.light()
+                        showPlaceSearch = true
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                            .font(.body)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(AppColors.primary)
+                            .frame(width: 52, height: 52)
+                            .background(AppColors.primarySubtle)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                }
 
                 Text("장소 링크 (선택)")
                     .font(.caption)

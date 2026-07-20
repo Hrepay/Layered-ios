@@ -55,6 +55,7 @@ final class AppState {
     @ObservationIgnored private var _recordRepository: RecordRepositoryProtocol?
     @ObservationIgnored private var _noteRepository: NoteRepositoryProtocol?
     @ObservationIgnored private var _storageRepository: StorageRepositoryProtocol?
+    @ObservationIgnored private var _placeSearchRepository: PlaceSearchRepositoryProtocol?
 
     private var authRepository: AuthRepositoryProtocol {
         if _authRepository == nil {
@@ -109,6 +110,12 @@ final class AppState {
             _storageRepository = shouldUseMock ? MockStorageRepository() : FirebaseStorageRepository()
         }
         return _storageRepository!
+    }
+    var placeSearchRepository: PlaceSearchRepositoryProtocol {
+        if _placeSearchRepository == nil {
+            _placeSearchRepository = KakaoPlaceSearchRepository()
+        }
+        return _placeSearchRepository!
     }
 
     private var hasSeenOnboarding: Bool {
