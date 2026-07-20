@@ -43,6 +43,8 @@ final class FirebaseMeetingRepository: MeetingRepositoryProtocol {
             activity: meeting.activity,
             status: meeting.status,
             hasPoll: meeting.hasPoll,
+            participantIds: meeting.participantIds,
+            attendance: meeting.attendance,
             createdAt: Date(),
             updatedAt: Date()
         )
