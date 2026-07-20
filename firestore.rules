@@ -21,28 +21,80 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid)).data.role == 'admin';
     }
 
-    // users: 본인 문서는 본인만 쓰기. 읽기는 인증된 사용자에게 허용(가족 가입 플로우에서 상대 정보 조회)
+    function familyData(familyId) {
+      return get(/databases/$(database)/documents/families/$(familyId)).data;
+    }
+
+    // users: 본인 문서는 본인만 쓰기.
+    // 읽기는 본인 + 같은 가족 구성원만(프로필 이미지 동기화용) — fcmToken 등 PII 전역 노출 방지.
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow create, update, delete: if isMe(userId);
+      allow get: if isMe(userId)
+        || (resource.data.familyId is string && isMemberOf(resource.data.familyId));
+      allow list: if false;
+      allow create, delete: if isMe(userId);
+      // 관리자는 강퇴/가정 삭제 시 대상 유저의 familyId만 해제 가능
+      allow update: if isMe(userId)
+        || (resource.data.familyId is string
+            && isAdminOf(resource.data.familyId)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['familyId']));
+    }
+
+    // 초대 코드 → 가정 매핑. 문서 ID가 코드 자체라 코드를 아는 사람만 get 가능.
+    // list를 막아 코드 수집(열거)을 차단.
+    match /inviteCodes/{code} {
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow create, update: if isMemberOf(request.resource.data.familyId);
+      allow delete: if isMemberOf(resource.data.familyId);
     }
 
     // families: 가족 멤버 기반 권한
     match /families/{familyId} {
-      allow read: if isSignedIn();            // 초대 코드 검색 위해 인증된 사용자면 허용
-      allow create: if isSignedIn();
-      allow update: if isMemberOf(familyId);
+      // 문서 ID는 추측 불가 랜덤값 — 초대 검증 후 미리보기/가입 트랜잭션에 get 필요.
+      // list를 막아 초대 코드·가정 정보 열거를 차단.
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow create: if isSignedIn()
+        && request.resource.data.adminId == request.auth.uid
+        && request.resource.data.memberCount == 1;
+      // adminId는 관리자만 변경 가능(위임). 나머지 운영 필드는 구성원 누구나.
+      allow update: if isAdminOf(familyId)
+        || (isMemberOf(familyId)
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['name', 'inviteCode', 'inviteCodeExpiresAt', 'currentPlannerIndex',
+                           'rotationMode', 'rotationDay', 'memberCount', 'updatedAt']))
+        || isJoiningSelf(familyId);
       allow delete: if isAdminOf(familyId);
+
+      // 초대 코드 가입 트랜잭션: 멤버 문서 생성과 함께 memberCount만 +1 하는 경우 허용
+      function isJoiningSelf(familyId) {
+        return isSignedIn()
+          && existsAfter(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid))
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberCount'])
+          && request.resource.data.memberCount == resource.data.memberCount + 1;
+      }
 
       // 멤버 서브컬렉션
       match /members/{memberId} {
         allow read: if isMemberOf(familyId) || isMe(memberId);
-        allow create: if isMe(memberId);       // 가입 시 본인만 자기 자신을 추가
-        allow update: if isMe(memberId)
-                      || isAdminOf(familyId)
-                      // 일반 구성원도 플래너 순서 변경은 허용 (rotationOrder 필드만 바뀔 때)
-                      || (isMemberOf(familyId)
-                          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rotationOrder']));
+        // 본인 추가만 허용하되:
+        // - 가정 생성자는 admin으로 (families.adminId와 대조)
+        // - 그 외에는 유효한 초대 코드를 제출한 경우에만 member로 (자가 승격·무단 가입 차단)
+        allow create: if isMe(memberId)
+          && (
+            (request.resource.data.role == 'admin'
+              && familyData(familyId).adminId == request.auth.uid)
+            || (request.resource.data.role == 'member'
+              && request.resource.data.joinCode == familyData(familyId).inviteCode
+              && familyData(familyId).inviteCodeExpiresAt > request.time
+              && familyData(familyId).memberCount < 10)
+          );
+        // 본인 수정은 role 변경 불가(자가 승격 차단). role 변경은 관리자만.
+        allow update: if isAdminOf(familyId)
+          || (isMe(memberId) && request.resource.data.role == resource.data.role)
+          // 일반 구성원도 플래너 순서 변경은 허용 (rotationOrder 필드만 바뀔 때)
+          || (isMemberOf(familyId)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rotationOrder']));
         allow delete: if isMe(memberId) || isAdminOf(familyId);
       }
 
@@ -50,7 +102,10 @@ service cloud.firestore {
       match /meetings/{meetingId} {
         allow read: if isMemberOf(familyId);
         allow create: if isMemberOf(familyId);
-        allow update: if isMemberOf(familyId);
+        // 수정자 표기(lastEditedById)는 본인으로만 기록 가능 — 푸시 발신자명 위조 방지
+        allow update: if isMemberOf(familyId)
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['lastEditedById'])
+              || request.resource.data.lastEditedById == request.auth.uid);
         allow delete: if isMemberOf(familyId)
           && (resource.data.plannerId == request.auth.uid || isAdminOf(familyId));
 
@@ -60,7 +115,9 @@ service cloud.firestore {
           allow create: if isMemberOf(familyId)
             && request.resource.data.memberId == request.auth.uid;
           allow update: if isMemberOf(familyId)
-            && resource.data.memberId == request.auth.uid;
+            && resource.data.memberId == request.auth.uid
+            // 소유자 재할당 불가
+            && request.resource.data.memberId == resource.data.memberId;
           allow delete: if isMemberOf(familyId)
             && (resource.data.memberId == request.auth.uid || isAdminOf(familyId));
         }
@@ -108,6 +165,12 @@ service cloud.firestore {
         allow delete: if isMemberOf(familyId)
           && (resource.data.authorId == request.auth.uid || isAdminOf(familyId));
       }
+    }
+
+    // records collection-group 쿼리: 본인 기록 검색용 (탈퇴/재가입 시 이름 치환).
+    // memberId == 본인 조건이 쿼리 필터로 증명 가능한 경우만 통과.
+    match /{path=**}/records/{recordId} {
+      allow read: if isSignedIn() && resource.data.memberId == request.auth.uid;
     }
 
     // 위 경로 외 전부 차단

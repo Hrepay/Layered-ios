@@ -3,34 +3,39 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
+    // 가족 멤버십을 Firestore에서 교차 확인 — SDK 직접 접근을 가족 구성원으로 제한.
+    // (다운로드 URL 토큰 접근은 규칙과 무관하므로 기존 이미지 표시에 영향 없음)
+    function isFamilyMember(familyId) {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/families/$(familyId)/members/$(request.auth.uid));
+    }
+
+    function isValidImage() {
+      return request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
     // 프로필 이미지: 본인만 쓰기, 인증된 사용자 누구나 읽기(같은 가족 멤버 프로필 표시)
     match /users/{userId}/profile.jpg {
       allow read: if request.auth != null;
       allow write: if request.auth != null
         && request.auth.uid == userId
-        && request.resource.size < 5 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
+        && isValidImage();
       allow delete: if request.auth != null && request.auth.uid == userId;
     }
 
-    // 모임 기록 사진: 인증된 사용자만. 경로 URL은 Firestore(records.photos)에 저장돼 있고
-    // 거기 접근 자체가 가족 멤버로 제한되므로 외부 URL 추측은 실질적으로 불가능
+    // 모임 기록 사진: 해당 가족 구성원만 읽기/쓰기/삭제
     match /families/{familyId}/meetings/{meetingId}/records/{recordId}/{fileName} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null
-        && request.resource.size < 5 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
-      allow delete: if request.auth != null;
+      allow read: if isFamilyMember(familyId);
+      allow write: if isFamilyMember(familyId) && isValidImage();
+      allow delete: if isFamilyMember(familyId);
     }
 
-    // 한 겹(노트) 사진: 인증된 사용자만. 경로 URL은 Firestore(notes.photoURL)에 저장돼 있고
-    // 거기 접근이 가족 멤버로 제한되므로 외부 URL 추측은 실질적으로 불가능
+    // 한 겹(노트) 사진: 해당 가족 구성원만 읽기/쓰기/삭제
     match /families/{familyId}/notes/{noteId}/{fileName} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null
-        && request.resource.size < 5 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
-      allow delete: if request.auth != null;
+      allow read: if isFamilyMember(familyId);
+      allow write: if isFamilyMember(familyId) && isValidImage();
+      allow delete: if isFamilyMember(familyId);
     }
 
     // 위 경로 외 전부 차단
