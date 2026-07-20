@@ -12,6 +12,8 @@ enum AuthState: Equatable {
     case home
 }
 
+// 관측 상태(isLoading·error·meetings 등)를 항상 메인 스레드에서만 변경하도록 클래스 전체를 격리.
+@MainActor
 @Observable
 final class AppState {
     // MARK: - Mock 모드 스위치 (스크린샷·데모용)
@@ -43,16 +45,16 @@ final class AppState {
     /// 푸시 탭으로 들어온 deep-link. 소비자(HomeView/MeetingDetailView)가 처리 후 nil로 비움.
     var pendingDeepLink: DeepLink?
 
-    // @Observable은 lazy를 지원하지 않으므로 nonisolated로 선언
-    nonisolated private var _authRepository: AuthRepositoryProtocol?
-    nonisolated private var _userRepository: UserRepositoryProtocol?
-    nonisolated private var _familyRepository: FamilyRepositoryProtocol?
-    nonisolated private var _memberRepository: MemberRepositoryProtocol?
-    nonisolated private var _meetingRepository: MeetingRepositoryProtocol?
-    nonisolated private var _pollRepository: PollRepositoryProtocol?
-    nonisolated private var _recordRepository: RecordRepositoryProtocol?
-    nonisolated private var _noteRepository: NoteRepositoryProtocol?
-    nonisolated private var _storageRepository: StorageRepositoryProtocol?
+    // @Observable은 lazy를 지원하지 않으므로 수동 캐싱 — 관측 대상에서 제외
+    @ObservationIgnored private var _authRepository: AuthRepositoryProtocol?
+    @ObservationIgnored private var _userRepository: UserRepositoryProtocol?
+    @ObservationIgnored private var _familyRepository: FamilyRepositoryProtocol?
+    @ObservationIgnored private var _memberRepository: MemberRepositoryProtocol?
+    @ObservationIgnored private var _meetingRepository: MeetingRepositoryProtocol?
+    @ObservationIgnored private var _pollRepository: PollRepositoryProtocol?
+    @ObservationIgnored private var _recordRepository: RecordRepositoryProtocol?
+    @ObservationIgnored private var _noteRepository: NoteRepositoryProtocol?
+    @ObservationIgnored private var _storageRepository: StorageRepositoryProtocol?
 
     private var authRepository: AuthRepositoryProtocol {
         if _authRepository == nil {
@@ -289,6 +291,8 @@ final class AppState {
         do {
             await refreshCurrentFamily()
             meetings = try await meetingRepository.getMeetings(familyId: familyId)
+            // 다른 가족 구성원이 만든 모임도 내 캘린더에 반영 (refreshMeetings와 동일 보장)
+            backfillCalendarIfNeeded()
             notes = (try? await noteRepository.getNotes(familyId: familyId)) ?? []
             await refreshMembers()
             await checkMyRecords()
@@ -829,7 +833,12 @@ final class AppState {
     @MainActor
     func updateNotificationSettings(_ settings: NotificationSettings) async {
         guard let userId = currentUser?.id else { return }
-        try? await userRepository.updateNotificationSettings(userId: userId, settings: settings)
+        do {
+            try await userRepository.updateNotificationSettings(userId: userId, settings: settings)
+        } catch {
+            // 조용히 삼키면 사용자가 끈 알림이 저장 안 된 채 켜져 보일 수 있음 — 표면화
+            self.error = AppError.from(error)
+        }
     }
 
     @MainActor
