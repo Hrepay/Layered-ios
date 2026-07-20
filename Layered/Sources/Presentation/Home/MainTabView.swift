@@ -31,13 +31,21 @@ struct MainTabView: View {
                         }
                         .tag(1)
 
+                    PlaceDiscoverView()
+                        .environment(appState)
+                        .tabItem {
+                            Image(systemName: "fork.knife")
+                            Text("주변")
+                        }
+                        .tag(2)
+
                     SettingsView()
                         .environment(appState)
                         .tabItem {
                             Image(systemName: "gearshape.fill")
                             Text("설정")
                         }
-                        .tag(2)
+                        .tag(3)
                 }
                 .tint(AppColors.primary)
                 .task {
