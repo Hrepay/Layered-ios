@@ -45,6 +45,9 @@ struct PlaceMapResults: View {
         .mapControls {
             MapUserLocationButton()
         }
+        // 앱 전역 틴트(피치)가 내 위치 점·버튼에 상속돼 음식점 핀과 색이 겹침 —
+        // 지도 요소만 표준 파란색으로 분리 (사용자 위치 관례색)
+        .tint(.blue)
         .overlay(alignment: .bottom) {
             if let selected = selection {
                 mapCard(selected)
