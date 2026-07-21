@@ -18,16 +18,17 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let radius = min(max(radiusMeters, 100), 20000)
 
+        // "맛집만" + 좌표: 동네명 기반 인기 검색 (아래 popularSearch 주석 참고)
+        if restaurantsOnly, let latitude, let longitude {
+            return try await popularSearch(
+                query: trimmed, category: category, radius: radius,
+                latitude: latitude, longitude: longitude
+            )
+        }
+
         if trimmed.isEmpty {
             guard let latitude, let longitude else { return [] }
-            // "맛집만"이면 좌표 반경 안에서 '맛집' 키워드 검색 — 카카오 인기도 랭킹 활용
-            if restaurantsOnly {
-                return try await keywordSearch(
-                    query: "", category: category, restaurantsOnly: true,
-                    radius: radius, latitude: latitude, longitude: longitude
-                )
-            }
-            // 그 외엔 카테고리 탐색 (음식점/카페 그룹 전체, 거리순)
+            // 좌표 기반 카테고리 탐색 (음식점/카페 그룹 전체, 거리순)
             return try await categorySearch(
                 category: category, radius: radius, latitude: latitude, longitude: longitude
             )
@@ -36,6 +37,87 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
             query: trimmed, category: category, restaurantsOnly: restaurantsOnly,
             radius: radius, latitude: latitude, longitude: longitude
         )
+    }
+
+    // MARK: - 맛집만 + 내 주변: 동네명 기반 인기 검색
+
+    /// 좌표를 동네명(법정동)으로 바꿔 "서초동 맛집"처럼 검색한다.
+    /// 좌표+반경 검색은 근접도에 끌려가 바로 옆 가게 위주로 나오지만,
+    /// 동네명 검색은 카카오의 언급량·인기 랭킹을 제대로 타서 유명한 곳이 상위로 온다 (실측 검증됨).
+    /// 반경은 API가 아닌 클라이언트에서 거리 필터로 적용 — API radius는 상위 결과에 영향이 없었음.
+    private func popularSearch(
+        query: String,
+        category: PlaceSearchCategory,
+        radius: Int,
+        latitude: Double,
+        longitude: Double
+    ) async throws -> [PlaceResult] {
+        var parts: [String] = []
+        if let region = try? await regionName(latitude: latitude, longitude: longitude) {
+            parts.append(region)
+        }
+        switch category {
+        case .all, .cafe: break
+        default: parts.append(category.rawValue)
+        }
+        if !query.isEmpty {
+            parts.append(query)
+        }
+        parts.append(category == .cafe ? "카페" : "맛집")
+        let effectiveQuery = parts.joined(separator: " ")
+
+        let groupCode = (category == .cafe) ? "CE7" : "FD6"
+        // 3페이지(최대 45곳) 수집 후 반경·프랜차이즈 필터 — 인기순 유지
+        var collected: [PlaceResult] = []
+        for page in 1...3 {
+            let items = [
+                URLQueryItem(name: "query", value: effectiveQuery),
+                URLQueryItem(name: "category_group_code", value: groupCode),
+                URLQueryItem(name: "x", value: String(longitude)),
+                URLQueryItem(name: "y", value: String(latitude)),
+                URLQueryItem(name: "size", value: "15"),
+                URLQueryItem(name: "page", value: String(page)),
+            ]
+            let response = try await requestPage(path: "keyword", queryItems: items)
+            collected += response.documents.map { $0.toPlaceResult() }
+            if response.meta.isEnd { break }
+        }
+
+        var seen = Set<String>()
+        return collected
+            .filter { seen.insert($0.id).inserted }
+            .filter { ($0.distanceMeters ?? 0) <= radius }
+            .filter { !Self.isFranchise($0.name) }
+    }
+
+    /// 좌표 → 법정동 이름 (예: "서초동"). 실패 시 nil — 호출부에서 좌표 검색으로 폴백.
+    private func regionName(latitude: Double, longitude: Double) async throws -> String? {
+        var components = URLComponents(string: "https://dapi.kakao.com/v2/local/geo/coord2regioncode.json")!
+        components.queryItems = [
+            URLQueryItem(name: "x", value: String(longitude)),
+            URLQueryItem(name: "y", value: String(latitude)),
+        ]
+        var urlRequest = URLRequest(url: components.url!)
+        urlRequest.setValue("KakaoAK \(AppConstants.Kakao.restAPIKey)", forHTTPHeaderField: "Authorization")
+        let (data, _) = try await session.data(for: urlRequest)
+        let decoded = try JSONDecoder().decode(KakaoRegionResponse.self, from: data)
+        // B(법정동)가 "서초동"처럼 검색어로 자연스러움. 없으면 행정동.
+        let region = decoded.documents.first { $0.regionType == "B" } ?? decoded.documents.first
+        return region?.region3DepthName.isEmpty == false ? region?.region3DepthName : nil
+    }
+
+    /// "맛집만" 모드에서 걸러낼 대형 프랜차이즈. 이름 접두 일치 기준.
+    private static let franchisePrefixes = [
+        "맥도날드", "버거킹", "롯데리아", "KFC", "맘스터치", "서브웨이", "노브랜드버거",
+        "스타벅스", "투썸플레이스", "이디야", "빽다방", "메가MGC", "메가커피", "컴포즈커피", "폴바셋",
+        "파리바게뜨", "뚜레쥬르", "던킨", "배스킨라빈스",
+        "김밥천국", "본죽", "한솥", "이삭토스트",
+        "도미노피자", "피자헛", "미스터피자",
+        "교촌치킨", "BBQ", "BHC", "굽네치킨", "네네치킨", "처갓집",
+    ]
+
+    private static func isFranchise(_ name: String) -> Bool {
+        franchisePrefixes.contains { name.hasPrefix($0) }
     }
 
     // MARK: - 요청 빌드
@@ -111,6 +193,10 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
     }
 
     private func request(path: String, queryItems: [URLQueryItem]) async throws -> [PlaceResult] {
+        try await requestPage(path: path, queryItems: queryItems).documents.map { $0.toPlaceResult() }
+    }
+
+    private func requestPage(path: String, queryItems: [URLQueryItem]) async throws -> KakaoLocalResponse {
         var components = URLComponents(string: "https://dapi.kakao.com/v2/local/search/\(path).json")!
         components.queryItems = queryItems
         var urlRequest = URLRequest(url: components.url!)
@@ -122,8 +208,7 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
                 NSLocalizedDescriptionKey: "장소 검색에 실패했습니다. 잠시 후 다시 시도해주세요",
             ])
         }
-        let decoded = try JSONDecoder().decode(KakaoLocalResponse.self, from: data)
-        return decoded.documents.map { $0.toPlaceResult() }
+        return try JSONDecoder().decode(KakaoLocalResponse.self, from: data)
     }
 }
 
@@ -131,6 +216,29 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
 
 private struct KakaoLocalResponse: Decodable {
     let documents: [KakaoPlaceDocument]
+    let meta: KakaoMeta
+}
+
+private struct KakaoMeta: Decodable {
+    let isEnd: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case isEnd = "is_end"
+    }
+}
+
+private struct KakaoRegionResponse: Decodable {
+    let documents: [KakaoRegionDocument]
+}
+
+private struct KakaoRegionDocument: Decodable {
+    let regionType: String
+    let region3DepthName: String
+
+    enum CodingKeys: String, CodingKey {
+        case regionType = "region_type"
+        case region3DepthName = "region_3depth_name"
+    }
 }
 
 private struct KakaoPlaceDocument: Decodable {

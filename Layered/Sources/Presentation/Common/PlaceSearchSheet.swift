@@ -60,10 +60,11 @@ struct PlaceSearchView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         nearMeChip
-                        if nearMe {
+                        restaurantsOnlyChip
+                        // 반경은 "내 주변+맛집만"에서만 실제 효과가 있음 (기본 모드는 거리순이라 무의미)
+                        if nearMe && restaurantsOnly {
                             radiusChip
                         }
-                        restaurantsOnlyChip
                         ForEach(PlaceSearchCategory.allCases) { item in
                             categoryChip(item)
                         }
@@ -138,7 +139,8 @@ struct PlaceSearchView: View {
         }
     }
 
-    /// 내 주변 검색 반경 선택. 멀리 있는 유명 맛집까지 볼지, 걸어갈 거리만 볼지 조절.
+    /// 맛집만 검색 반경 선택. 멀리 있는 유명 맛집까지 볼지, 걸어갈 거리만 볼지 조절.
+    /// (클라이언트 거리 필터로 적용 — API radius는 상위 결과에 영향이 없어 사용하지 않음)
     private var radiusChip: some View {
         Menu {
             ForEach([1, 3, 5, 10], id: \.self) { km in
