@@ -23,6 +23,8 @@ struct PlaceSearchView: View {
     @State private var results: [PlaceResult] = []
     @State private var isLoading = false
     @State private var hasSearched = false
+    /// 마지막 검색이 네트워크/서버 오류로 실패했는지 — "결과 없음"과 구분해 표시.
+    @State private var searchFailed = false
     @State private var showLocationDeniedAlert = false
     @State private var detailPlace: PlaceResult?
     @State private var locationProvider = CurrentLocationProvider()
@@ -100,9 +102,16 @@ struct PlaceSearchView: View {
                 Spacer()
                 if familyWishMode {
                     EmptyStateView(
-                        icon: "heart",
+                        icon: "heart.fill",
                         title: "아직 가족 추천이 없어요",
                         description: "검색 결과에서 ♥︎를 누르면\n가족 모두가 보는 리스트에 담겨요"
+                    )
+                } else if searchFailed {
+                    // 네트워크 오류를 "결과 없음"으로 오인하지 않게 구분
+                    EmptyStateView(
+                        icon: "wifi.exclamationmark",
+                        title: "검색에 실패했어요",
+                        description: "네트워크 상태를 확인하고\n다시 시도해주세요"
                     )
                 } else {
                     EmptyStateView(
@@ -145,110 +154,83 @@ struct PlaceSearchView: View {
     // MARK: - 칩
 
     private var nearMeChip: some View {
+        filterChip(icon: "location.fill", title: "내 주변", isOn: nearMe) {
+            Task { await toggleNearMe() }
+        }
+    }
+
+    /// 필터 칩 공통 스타일 — 켜지면 primary 배경 + 흰 콘텐츠.
+    private func filterChip(
+        icon: String? = nil,
+        title: String,
+        isOn: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
         Button {
             Haptic.light()
-            Task { await toggleNearMe() }
+            action()
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: "location.fill")
-                    .font(.caption2)
-                Text("내 주변")
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.caption2)
+                }
+                Text(title)
                     .font(.subheadline)
                     .fontWeight(.medium)
             }
-            .foregroundStyle(nearMe ? .white : .primary)
+            .foregroundStyle(isOn ? .white : .primary)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Capsule().fill(nearMe ? AppColors.primary : Color(.secondarySystemBackground)))
+            .background(Capsule().fill(isOn ? AppColors.primary : Color(.secondarySystemBackground)))
         }
     }
 
     /// 가족 맛집 리스트(가고 싶은 곳)를 결과 자리에 표시 — 모임 장소·후보 선택 시 바로 활용.
     private var familyWishChip: some View {
         let count = appState.placeWishes.filter { $0.status == .wishlist }.count
-        return Button {
-            Haptic.light()
+        return filterChip(
+            icon: "heart.fill",
+            title: count > 0 ? "가족 추천 \(count)" : "가족 추천",
+            isOn: familyWishMode
+        ) {
             familyWishMode.toggle()
             if familyWishMode {
                 mapSelection = nil
                 cameraPosition = .automatic
                 Task { await appState.refreshPlaceWishes() }
             }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "heart.fill")
-                    .font(.caption2)
-                Text(count > 0 ? "가족 추천 \(count)" : "가족 추천")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-            }
-            .foregroundStyle(familyWishMode ? .white : .primary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Capsule().fill(familyWishMode ? AppColors.primary : Color(.secondarySystemBackground)))
         }
     }
 
     /// 리스트 ↔ 지도 보기 전환.
     private var mapToggleChip: some View {
-        Button {
-            Haptic.light()
+        filterChip(
+            icon: showMap ? "list.bullet" : "map.fill",
+            title: showMap ? "리스트" : "지도",
+            isOn: showMap
+        ) {
             showMap.toggle()
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: showMap ? "list.bullet" : "map.fill")
-                    .font(.caption2)
-                Text(showMap ? "리스트" : "지도")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-            }
-            .foregroundStyle(showMap ? .white : .primary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Capsule().fill(showMap ? AppColors.primary : Color(.secondarySystemBackground)))
         }
     }
 
     /// "맛집만 보기": 인기·언급량이 반영되는 '맛집' 키워드 + 정확도 정렬로 전환.
     /// 내 주변과 함께 켜면 "가까운 순" 대신 "주변에서 유명한 순"으로 나온다.
     private var restaurantsOnlyChip: some View {
-        Button {
-            Haptic.light()
+        filterChip(icon: "star.fill", title: "맛집만", isOn: restaurantsOnly) {
             restaurantsOnly.toggle()
             if canSearch {
                 Task { await search() }
             }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "star.fill")
-                    .font(.caption2)
-                Text("맛집만")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-            }
-            .foregroundStyle(restaurantsOnly ? .white : .primary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Capsule().fill(restaurantsOnly ? AppColors.primary : Color(.secondarySystemBackground)))
         }
     }
 
     private func categoryChip(_ item: PlaceSearchCategory) -> some View {
-        let isSelected = category == item
-        return Button {
-            Haptic.light()
+        filterChip(title: item.rawValue, isOn: category == item) {
             category = item
             if canSearch {
                 Task { await search() }
             }
-        } label: {
-            Text(item.rawValue)
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .foregroundStyle(isSelected ? .white : .primary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Capsule().fill(isSelected ? AppColors.primary : Color(.secondarySystemBackground)))
         }
     }
 
@@ -258,25 +240,27 @@ struct PlaceSearchView: View {
         Map(position: $cameraPosition) {
             UserAnnotation()
             ForEach(displayResults) { place in
+                // 기본 애플 POI를 지우고(아래 mapStyle) 이름 라벨을 노출해 핀 식별성 확보
                 Annotation(place.name, coordinate: place.coordinate) {
                     Button {
                         Haptic.light()
                         mapSelection = place
                     } label: {
                         let isSelected = mapSelection?.id == place.id
-                        Image(systemName: "fork.knife")
-                            .font(isSelected ? .body : .caption)
-                            .fontWeight(.semibold)
+                        Image(systemName: familyWishMode ? "heart.fill" : "fork.knife")
+                            .font(isSelected ? .body : .subheadline)
+                            .fontWeight(.bold)
                             .foregroundStyle(.white)
-                            .frame(width: isSelected ? 36 : 28, height: isSelected ? 36 : 28)
+                            .frame(width: isSelected ? 40 : 32, height: isSelected ? 40 : 32)
                             .background(Circle().fill(AppColors.primary))
-                            .overlay(Circle().stroke(.white, lineWidth: 2))
-                            .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
+                            .overlay(Circle().stroke(.white, lineWidth: 2.5))
+                            .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
                     }
                 }
-                .annotationTitles(.hidden)
             }
         }
+        // 애플 지도 자체 음식점 아이콘이 핀과 비슷한 색이라 섞여 보임 — 전부 제거해 우리 핀만 표시
+        .mapStyle(.standard(pointsOfInterest: .excludingAll))
         .overlay(alignment: .bottom) {
             if let selected = mapSelection {
                 mapCard(selected)
@@ -467,6 +451,9 @@ struct PlaceSearchView: View {
 
     func search() async {
         guard canSearch else { return }
+        // 가족 추천 모드에서 검색하면 결과 화면으로 전환 — 위시리스트가 그대로 남아
+        // "검색이 안 된다"고 보이는 것 방지
+        familyWishMode = false
         isLoading = true
         defer {
             isLoading = false
@@ -480,13 +467,13 @@ struct PlaceSearchView: View {
                 query: query,
                 category: category,
                 restaurantsOnly: restaurantsOnly,
-                // 동네명 검색 결과가 실측상 대부분 2km 이내라 반경 UI는 제거 — 상한만 유지
-                radiusMeters: 20_000,
                 latitude: nearMe ? coordinate?.latitude : nil,
                 longitude: nearMe ? coordinate?.longitude : nil
             )
+            searchFailed = false
         } catch {
             results = []
+            searchFailed = true
         }
     }
 }
@@ -518,6 +505,8 @@ struct PlaceThumbnailView: View {
     @State private var image: UIImage?
 
     private static let cache = NSCache<NSString, UIImage>()
+    /// 추출 실패한 URL — 행이 다시 나타날 때마다 재요청하지 않게 기록.
+    nonisolated(unsafe) private static var failedKeys = Set<String>()
 
     var body: some View {
         ZStack {
@@ -540,7 +529,10 @@ struct PlaceThumbnailView: View {
     }
 
     private func loadThumbnail() async {
-        guard let urlString, let url = URL(string: urlString) else { return }
+        // 재사용/선택 전환 시 이전 장소 사진이 남지 않게 항상 비우고 시작
+        image = nil
+        guard let urlString, let url = URL(string: urlString),
+              !Self.failedKeys.contains(urlString) else { return }
         if let cached = Self.cache.object(forKey: urlString as NSString) {
             image = cached
             return
@@ -554,7 +546,10 @@ struct PlaceThumbnailView: View {
         // 2차 폴백: 대표 사진이 없는 가게는 카카오 이미지 검색의 첫 썸네일
         guard let fallbackURL = await KakaoPlaceSearchRepository.fallbackThumbnailURL(placeName: placeName),
               let (data, _) = try? await URLSession.shared.data(from: fallbackURL),
-              let loaded = UIImage(data: data) else { return }
+              let loaded = UIImage(data: data) else {
+            Self.failedKeys.insert(urlString)
+            return
+        }
         Self.cache.setObject(loaded, forKey: urlString as NSString)
         image = loaded
     }
