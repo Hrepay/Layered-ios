@@ -20,22 +20,24 @@ struct PlaceMapResults: View {
         Map(position: $cameraPosition) {
             UserAnnotation()
             ForEach(places) { place in
-                // 기본 애플 POI를 지우고(아래 mapStyle) 이름 라벨을 노출해 핀 식별성 확보
+                // 기본 애플 POI를 지우고(아래 mapStyle) 이름 라벨을 노출해 핀 식별성 확보.
+                // Button 대신 onTapGesture — 버튼은 터치를 선점해서 핀 위에서 시작한
+                // 핀치(확대) 제스처가 지도로 전달되지 않음. 탭 제스처는 두 손가락을 통과시킴.
                 Annotation(place.name, coordinate: place.coordinate) {
-                    Button {
-                        Haptic.light()
-                        selection = place
-                    } label: {
-                        let isSelected = selection?.id == place.id
-                        Image(systemName: wishMode ? "heart.fill" : "fork.knife")
-                            .font(isSelected ? .body : .subheadline)
-                            .fontWeight(.bold)
-                            .foregroundStyle(.white)
-                            .frame(width: isSelected ? 40 : 32, height: isSelected ? 40 : 32)
-                            .background(Circle().fill(AppColors.primary))
-                            .overlay(Circle().stroke(.white, lineWidth: 2.5))
-                            .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
-                    }
+                    let isSelected = selection?.id == place.id
+                    Image(systemName: wishMode ? "heart.fill" : "fork.knife")
+                        .font(isSelected ? .body : .subheadline)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.white)
+                        .frame(width: isSelected ? 40 : 32, height: isSelected ? 40 : 32)
+                        .background(Circle().fill(AppColors.primary))
+                        .overlay(Circle().stroke(.white, lineWidth: 2.5))
+                        .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
+                        .contentShape(Circle())
+                        .onTapGesture {
+                            Haptic.light()
+                            selection = place
+                        }
                 }
             }
         }
