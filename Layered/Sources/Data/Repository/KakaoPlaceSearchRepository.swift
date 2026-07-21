@@ -120,6 +120,25 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
         franchisePrefixes.contains { name.hasPrefix($0) }
     }
 
+    // MARK: - 썸네일 폴백 (카카오 이미지 검색)
+
+    /// 상세페이지 og:image가 없는 가게용 폴백 — 가게명으로 이미지 검색해 첫 썸네일 URL 반환.
+    /// 공식 Daum 검색 API (같은 REST 키, 무료 쿼터 별도).
+    static func fallbackThumbnailURL(placeName: String) async -> URL? {
+        var components = URLComponents(string: "https://dapi.kakao.com/v2/search/image")!
+        components.queryItems = [
+            URLQueryItem(name: "query", value: placeName),
+            URLQueryItem(name: "size", value: "1"),
+        ]
+        var urlRequest = URLRequest(url: components.url!)
+        urlRequest.setValue("KakaoAK \(AppConstants.Kakao.restAPIKey)", forHTTPHeaderField: "Authorization")
+        guard let (data, response) = try? await URLSession.shared.data(for: urlRequest),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let decoded = try? JSONDecoder().decode(KakaoImageSearchResponse.self, from: data),
+              let thumbnail = decoded.documents.first?.thumbnailUrl else { return nil }
+        return URL(string: thumbnail)
+    }
+
     // MARK: - 요청 빌드
 
     private func keywordSearch(
@@ -227,6 +246,18 @@ private struct KakaoMeta: Decodable {
     }
 }
 
+private struct KakaoImageSearchResponse: Decodable {
+    let documents: [KakaoImageDocument]
+}
+
+private struct KakaoImageDocument: Decodable {
+    let thumbnailUrl: String
+
+    enum CodingKeys: String, CodingKey {
+        case thumbnailUrl = "thumbnail_url"
+    }
+}
+
 private struct KakaoRegionResponse: Decodable {
     let documents: [KakaoRegionDocument]
 }
@@ -270,6 +301,8 @@ private struct KakaoPlaceDocument: Decodable {
         let shortCategory = categoryName
             .components(separatedBy: " > ")
             .last?.trimmingCharacters(in: .whitespaces) ?? categoryName
+        // API가 http URL을 주는데 ATS가 평문 요청을 막아 썸네일(og:image) 추출이 실패 → https로 승격
+        let secureURL = placeUrl.replacingOccurrences(of: "http://", with: "https://")
         return PlaceResult(
             id: id,
             name: placeName,
@@ -279,7 +312,7 @@ private struct KakaoPlaceDocument: Decodable {
             phone: phone.isEmpty ? nil : phone,
             latitude: Double(y) ?? 0,
             longitude: Double(x) ?? 0,
-            detailURL: placeUrl.isEmpty ? nil : placeUrl
+            detailURL: secureURL.isEmpty ? nil : secureURL
         )
     }
 }

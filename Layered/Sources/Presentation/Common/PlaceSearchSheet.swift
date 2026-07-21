@@ -180,7 +180,7 @@ struct PlaceSearchView: View {
 
     private func resultRow(_ place: PlaceResult) -> some View {
         HStack(spacing: 12) {
-            PlaceThumbnailView(urlString: place.detailURL)
+            PlaceThumbnailView(urlString: place.detailURL, placeName: place.name)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -317,6 +317,7 @@ struct PlaceSearchSheet: View {
 
 struct PlaceThumbnailView: View {
     let urlString: String?
+    let placeName: String
     @State private var image: UIImage?
 
     private static let cache = NSCache<NSString, UIImage>()
@@ -347,18 +348,28 @@ struct PlaceThumbnailView: View {
             image = cached
             return
         }
-        // 상세페이지의 og:image를 LinkPresentation으로 추출 — 별도 사진 API 없이 대표 사진 확보
+        // 1차: 상세페이지의 og:image(가게 대표 사진)를 LinkPresentation으로 추출
+        if let loaded = await ogImage(from: url) {
+            Self.cache.setObject(loaded, forKey: urlString as NSString)
+            image = loaded
+            return
+        }
+        // 2차 폴백: 대표 사진이 없는 가게는 카카오 이미지 검색의 첫 썸네일
+        guard let fallbackURL = await KakaoPlaceSearchRepository.fallbackThumbnailURL(placeName: placeName),
+              let (data, _) = try? await URLSession.shared.data(from: fallbackURL),
+              let loaded = UIImage(data: data) else { return }
+        Self.cache.setObject(loaded, forKey: urlString as NSString)
+        image = loaded
+    }
+
+    private func ogImage(from url: URL) async -> UIImage? {
         let provider = LPMetadataProvider()
         guard let metadata = try? await provider.startFetchingMetadata(for: url),
-              let imageProvider = metadata.imageProvider else { return }
-        let loaded: UIImage? = await withCheckedContinuation { continuation in
+              let imageProvider = metadata.imageProvider else { return nil }
+        return await withCheckedContinuation { continuation in
             imageProvider.loadObject(ofClass: UIImage.self) { object, _ in
                 continuation.resume(returning: object as? UIImage)
             }
-        }
-        if let loaded {
-            Self.cache.setObject(loaded, forKey: urlString as NSString)
-            image = loaded
         }
     }
 }
