@@ -10,17 +10,28 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
     func searchPlaces(
         query: String,
         category: PlaceSearchCategory,
+        restaurantsOnly: Bool,
         latitude: Double?,
         longitude: Double?
     ) async throws -> [PlaceResult] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // 검색어가 없으면 좌표 기반 카테고리 탐색 (음식점/카페 그룹 전체)
         if trimmed.isEmpty {
             guard let latitude, let longitude else { return [] }
+            // "맛집만"이면 좌표 반경 안에서 '맛집' 키워드 검색 — 카카오 인기도 랭킹 활용
+            if restaurantsOnly {
+                return try await keywordSearch(
+                    query: "", category: category, restaurantsOnly: true,
+                    latitude: latitude, longitude: longitude
+                )
+            }
+            // 그 외엔 카테고리 탐색 (음식점/카페 그룹 전체, 거리순)
             return try await categorySearch(category: category, latitude: latitude, longitude: longitude)
         }
-        return try await keywordSearch(query: trimmed, category: category, latitude: latitude, longitude: longitude)
+        return try await keywordSearch(
+            query: trimmed, category: category, restaurantsOnly: restaurantsOnly,
+            latitude: latitude, longitude: longitude
+        )
     }
 
     // MARK: - 요청 빌드
@@ -28,17 +39,28 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
     private func keywordSearch(
         query: String,
         category: PlaceSearchCategory,
+        restaurantsOnly: Bool,
         latitude: Double?,
         longitude: Double?
     ) async throws -> [PlaceResult] {
         // 세부 업종 칩은 검색어에 접두어로 합성 (카카오는 업종 키워드 검색 품질이 좋음)
-        let effectiveQuery: String
+        var parts: [String] = []
         switch category {
         case .all, .cafe:
-            effectiveQuery = query
+            break
         default:
-            effectiveQuery = "\(category.rawValue) \(query)"
+            parts.append(category.rawValue)
         }
+        if !query.isEmpty {
+            parts.append(query)
+        }
+        // "맛집만": 카카오가 인기·언급량 기반으로 랭킹하는 '맛집' 키워드 합성.
+        // 카페 칩은 '카페 맛집'이 어색하므로 '카페'로 검색 (인기도 정렬은 동일 적용)
+        if restaurantsOnly {
+            parts.append(category == .cafe ? "카페" : "맛집")
+        }
+        let effectiveQuery = parts.joined(separator: " ")
+        guard !effectiveQuery.isEmpty else { return [] }
 
         var items = [
             URLQueryItem(name: "query", value: effectiveQuery),
@@ -51,11 +73,12 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
         default: items.append(URLQueryItem(name: "category_group_code", value: "FD6"))
         }
         if let latitude, let longitude {
+            // 맛집만: 반경을 좁히고 인기도(정확도) 정렬 — "가까운 순"이 아니라 "주변에서 유명한 순"
             items.append(contentsOf: [
                 URLQueryItem(name: "x", value: String(longitude)),
                 URLQueryItem(name: "y", value: String(latitude)),
-                URLQueryItem(name: "radius", value: "20000"),
-                URLQueryItem(name: "sort", value: "distance"),
+                URLQueryItem(name: "radius", value: restaurantsOnly ? "5000" : "20000"),
+                URLQueryItem(name: "sort", value: restaurantsOnly ? "accuracy" : "distance"),
             ])
         }
         return try await request(path: "keyword", queryItems: items)

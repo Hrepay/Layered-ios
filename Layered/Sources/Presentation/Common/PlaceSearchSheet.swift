@@ -16,6 +16,7 @@ struct PlaceSearchView: View {
 
     @Binding var query: String
     @State private var category: PlaceSearchCategory = .all
+    @State private var restaurantsOnly = false
     @State private var nearMe = false
     @State private var coordinate: CLLocationCoordinate2D?
     @State private var results: [PlaceResult] = []
@@ -57,6 +58,7 @@ struct PlaceSearchView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         nearMeChip
+                        restaurantsOnlyChip
                         ForEach(PlaceSearchCategory.allCases) { item in
                             categoryChip(item)
                         }
@@ -128,6 +130,30 @@ struct PlaceSearchView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(Capsule().fill(nearMe ? AppColors.primary : Color(.secondarySystemBackground)))
+        }
+    }
+
+    /// "맛집만 보기": 인기·언급량이 반영되는 '맛집' 키워드 + 정확도 정렬로 전환.
+    /// 내 주변과 함께 켜면 "가까운 순" 대신 "주변에서 유명한 순"으로 나온다.
+    private var restaurantsOnlyChip: some View {
+        Button {
+            Haptic.light()
+            restaurantsOnly.toggle()
+            if canSearch {
+                Task { await search() }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "star.fill")
+                    .font(.caption2)
+                Text("맛집만")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+            }
+            .foregroundStyle(restaurantsOnly ? .white : .primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(restaurantsOnly ? AppColors.primary : Color(.secondarySystemBackground)))
         }
     }
 
@@ -241,6 +267,7 @@ struct PlaceSearchView: View {
             results = try await appState.placeSearchRepository.searchPlaces(
                 query: query,
                 category: category,
+                restaurantsOnly: restaurantsOnly,
                 latitude: nearMe ? coordinate?.latitude : nil,
                 longitude: nearMe ? coordinate?.longitude : nil
             )
