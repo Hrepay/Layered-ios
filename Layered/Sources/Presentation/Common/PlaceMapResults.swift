@@ -41,6 +41,10 @@ struct PlaceMapResults: View {
         }
         // 애플 지도 자체 음식점 아이콘이 핀과 비슷한 색이라 섞여 보임 — 전부 제거해 우리 핀만 표시
         .mapStyle(.standard(pointsOfInterest: .excludingAll))
+        // 내 위치로 이동 버튼 (위치 권한은 '내 주변' 검색과 공유)
+        .mapControls {
+            MapUserLocationButton()
+        }
         .overlay(alignment: .bottom) {
             if let selected = selection {
                 mapCard(selected)
