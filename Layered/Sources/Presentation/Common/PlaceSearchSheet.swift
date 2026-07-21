@@ -18,8 +18,6 @@ struct PlaceSearchView: View {
     @State private var category: PlaceSearchCategory = .all
     @State private var restaurantsOnly = false
     @State private var nearMe = false
-    /// "내 주변" 검색 반경(km). 내 주변이 켜졌을 때만 노출.
-    @State private var radiusKm = 3
     @State private var coordinate: CLLocationCoordinate2D?
     @State private var results: [PlaceResult] = []
     @State private var isLoading = false
@@ -61,10 +59,6 @@ struct PlaceSearchView: View {
                     HStack(spacing: 8) {
                         nearMeChip
                         restaurantsOnlyChip
-                        // 반경은 "내 주변+맛집만"에서만 실제 효과가 있음 (기본 모드는 거리순이라 무의미)
-                        if nearMe && restaurantsOnly {
-                            radiusChip
-                        }
                         ForEach(PlaceSearchCategory.allCases) { item in
                             categoryChip(item)
                         }
@@ -136,40 +130,6 @@ struct PlaceSearchView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(Capsule().fill(nearMe ? AppColors.primary : Color(.secondarySystemBackground)))
-        }
-    }
-
-    /// 맛집만 검색 반경 선택. 멀리 있는 유명 맛집까지 볼지, 걸어갈 거리만 볼지 조절.
-    /// (클라이언트 거리 필터로 적용 — API radius는 상위 결과에 영향이 없어 사용하지 않음)
-    private var radiusChip: some View {
-        Menu {
-            ForEach([1, 3, 5, 10], id: \.self) { km in
-                Button {
-                    Haptic.light()
-                    radiusKm = km
-                    if canSearch {
-                        Task { await search() }
-                    }
-                } label: {
-                    if km == radiusKm {
-                        Label("\(km)km", systemImage: "checkmark")
-                    } else {
-                        Text("\(km)km")
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Text("\(radiusKm)km")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                Image(systemName: "chevron.down")
-                    .font(.caption2)
-            }
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Capsule().fill(Color(.secondarySystemBackground)))
         }
     }
 
@@ -292,6 +252,14 @@ struct PlaceSearchView: View {
         if nearMe {
             nearMe = false
             coordinate = nil
+            // 검색어가 남아 있으면 그 조건으로 재검색, 없으면 이전 결과가
+            // 칩과 무관하게 남아 혼란을 주므로 초기 상태로 리셋
+            if canSearch {
+                await search()
+            } else {
+                results = []
+                hasSearched = false
+            }
             return
         }
         if let location = await locationProvider.requestCurrentLocation() {
@@ -315,7 +283,8 @@ struct PlaceSearchView: View {
                 query: query,
                 category: category,
                 restaurantsOnly: restaurantsOnly,
-                radiusMeters: radiusKm * 1000,
+                // 동네명 검색 결과가 실측상 대부분 2km 이내라 반경 UI는 제거 — 상한만 유지
+                radiusMeters: 20_000,
                 latitude: nearMe ? coordinate?.latitude : nil,
                 longitude: nearMe ? coordinate?.longitude : nil
             )
