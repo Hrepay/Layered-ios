@@ -2,6 +2,7 @@ import SwiftUI
 import CoreLocation
 import LinkPresentation
 import SafariServices
+import MapKit
 
 // MARK: - 장소 검색 코어 (시트·주변 탭 공용)
 
@@ -25,6 +26,10 @@ struct PlaceSearchView: View {
     @State private var showLocationDeniedAlert = false
     @State private var detailPlace: PlaceResult?
     @State private var locationProvider = CurrentLocationProvider()
+    // 지도 보기
+    @State private var showMap = false
+    @State private var mapSelection: PlaceResult?
+    @State private var cameraPosition: MapCameraPosition = .automatic
 
     var canSearch: Bool {
         !query.trimmingCharacters(in: .whitespaces).isEmpty || (nearMe && coordinate != nil)
@@ -57,6 +62,7 @@ struct PlaceSearchView: View {
                 // 카테고리 칩 + 내 주변
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
+                        mapToggleChip
                         nearMeChip
                         restaurantsOnlyChip
                         ForEach(PlaceSearchCategory.allCases) { item in
@@ -86,6 +92,8 @@ struct PlaceSearchView: View {
                         : "지역과 가게 이름으로 검색하거나,\n'내 주변'을 켜고 카테고리만 골라도 돼요"
                 )
                 Spacer()
+            } else if showMap {
+                mapResults
             } else {
                 List(results) { place in
                     resultRow(place)
@@ -133,6 +141,26 @@ struct PlaceSearchView: View {
         }
     }
 
+    /// 리스트 ↔ 지도 보기 전환.
+    private var mapToggleChip: some View {
+        Button {
+            Haptic.light()
+            showMap.toggle()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: showMap ? "list.bullet" : "map.fill")
+                    .font(.caption2)
+                Text(showMap ? "리스트" : "지도")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+            }
+            .foregroundStyle(showMap ? .white : .primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(showMap ? AppColors.primary : Color(.secondarySystemBackground)))
+        }
+    }
+
     /// "맛집만 보기": 인기·언급량이 반영되는 '맛집' 키워드 + 정확도 정렬로 전환.
     /// 내 주변과 함께 켜면 "가까운 순" 대신 "주변에서 유명한 순"으로 나온다.
     private var restaurantsOnlyChip: some View {
@@ -173,6 +201,101 @@ struct PlaceSearchView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(Capsule().fill(isSelected ? AppColors.primary : Color(.secondarySystemBackground)))
+        }
+    }
+
+    // MARK: - 지도 보기
+
+    private var mapResults: some View {
+        Map(position: $cameraPosition) {
+            UserAnnotation()
+            ForEach(results) { place in
+                Annotation(place.name, coordinate: place.coordinate) {
+                    Button {
+                        Haptic.light()
+                        mapSelection = place
+                    } label: {
+                        let isSelected = mapSelection?.id == place.id
+                        Image(systemName: "fork.knife")
+                            .font(isSelected ? .body : .caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.white)
+                            .frame(width: isSelected ? 36 : 28, height: isSelected ? 36 : 28)
+                            .background(Circle().fill(AppColors.primary))
+                            .overlay(Circle().stroke(.white, lineWidth: 2))
+                            .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
+                    }
+                }
+                .annotationTitles(.hidden)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let selected = mapSelection {
+                mapCard(selected)
+            }
+        }
+    }
+
+    /// 지도에서 핀 선택 시 하단에 뜨는 요약 카드.
+    private func mapCard(_ place: PlaceResult) -> some View {
+        HStack(spacing: 12) {
+            PlaceThumbnailView(urlString: place.detailURL, placeName: place.name)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(place.name)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(place.category)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let distance = place.distanceText {
+                    Text(distance)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            Button {
+                Haptic.light()
+                detailPlace = place
+            } label: {
+                Image(systemName: "info.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(AppColors.info)
+            }
+            .buttonStyle(.borderless)
+
+            if let onSelect {
+                Button {
+                    Haptic.light()
+                    onSelect(place)
+                    onDismissAfterSelect?()
+                } label: {
+                    Text("선택")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(AppColors.primary))
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+        .padding(14)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 16)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            Haptic.light()
+            detailPlace = place
         }
     }
 
@@ -277,6 +400,9 @@ struct PlaceSearchView: View {
         defer {
             isLoading = false
             hasSearched = true
+            // 새 결과에 맞춰 지도 시야·선택 초기화
+            mapSelection = nil
+            cameraPosition = .automatic
         }
         do {
             results = try await appState.placeSearchRepository.searchPlaces(

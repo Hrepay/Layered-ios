@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 
 /// 장소 검색 결과 1건. 카카오 로컬 등 어떤 제공자든 이 형태로 변환해 사용.
 struct PlaceResult: Identifiable, Hashable {
@@ -20,6 +21,10 @@ struct PlaceResult: Identifiable, Hashable {
         guard let distanceMeters else { return nil }
         if distanceMeters < 1000 { return "\(distanceMeters)m" }
         return String(format: "%.1fkm", Double(distanceMeters) / 1000)
+    }
+
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 }
 
