@@ -71,13 +71,14 @@ export const onMeetingCreated = onDocumentCreated(
         .collection("users")
         .doc(memberDoc.id).get();
       const userData = userDoc.data();
-      const fcmToken = userData?.fcmToken;
+      const userTokens = deviceTokens(userData);
       const notificationsEnabled =
         userData?.notificationsEnabled !== false;
       const notifyMeetingCreated =
         userData?.notifyMeetingCreated !== false;
-      if (fcmToken && notificationsEnabled && notifyMeetingCreated) {
-        tokens.push(fcmToken);
+      if (userTokens.length > 0 &&
+          notificationsEnabled && notifyMeetingCreated) {
+        tokens.push(...userTokens);
       }
     }
 
@@ -168,13 +169,14 @@ export const onMeetingUpdated = onDocumentUpdated(
       const userDoc = await db
         .collection("users").doc(memberDoc.id).get();
       const userData = userDoc.data();
-      const fcmToken = userData?.fcmToken;
+      const userTokens = deviceTokens(userData);
       const notificationsEnabled =
         userData?.notificationsEnabled !== false;
       const notifyMeetingUpdated =
         userData?.notifyMeetingUpdated !== false;
-      if (fcmToken && notificationsEnabled && notifyMeetingUpdated) {
-        tokens.push(fcmToken);
+      if (userTokens.length > 0 &&
+          notificationsEnabled && notifyMeetingUpdated) {
+        tokens.push(...userTokens);
       }
     }
     if (tokens.length === 0) return;
@@ -257,36 +259,38 @@ export const remindPlanner = onSchedule(
         .doc(plannerDoc.id)
         .get();
       const userData = userDoc.data();
-      const fcmToken = userData?.fcmToken;
+      const userTokens = deviceTokens(userData);
       const notificationsEnabled =
         userData?.notificationsEnabled !== false;
       const notifyPlannerReminder =
         userData?.notifyPlannerReminder !== false;
 
-      if (!fcmToken) continue;
+      if (userTokens.length === 0) continue;
       if (!notificationsEnabled || !notifyPlannerReminder) continue;
 
       const familyName = data.name || "가정";
       // 단일 send는 multicast helper를 쓸 수 없어 직접 처리.
       // 실패 에러 코드가 stale token이면 정리.
-      try {
-        await getMessaging().send({
-          notification: {
-            title: "이번 주 모임을 계획해주세요!",
-            body: `${familyName}의 플래너로 지정되었어요.`,
-          },
-          token: fcmToken,
-        });
-        console.log(
-          `Reminder: ${plannerDoc.id} in ${familyDoc.id}`
-        );
-      } catch (error) {
-        const code = (error as {code?: string})?.code;
-        console.error(
-          `Reminder error (${plannerDoc.id}): code=${code}`, error
-        );
-        if (code && STALE_TOKEN_CODES.has(code)) {
-          await cleanupInvalidTokens([fcmToken]);
+      for (const token of userTokens) {
+        try {
+          await getMessaging().send({
+            notification: {
+              title: "이번 주 모임을 계획해주세요!",
+              body: `${familyName}의 플래너로 지정되었어요.`,
+            },
+            token,
+          });
+          console.log(
+            `Reminder: ${plannerDoc.id} in ${familyDoc.id}`
+          );
+        } catch (error) {
+          const code = (error as {code?: string})?.code;
+          console.error(
+            `Reminder error (${plannerDoc.id}): code=${code}`, error
+          );
+          if (code && STALE_TOKEN_CODES.has(code)) {
+            await cleanupInvalidTokens([token]);
+          }
         }
       }
     }
@@ -341,13 +345,14 @@ export const onMeetingCommentCreated = onDocumentCreated(
       const userDoc = await db
         .collection("users").doc(memberDoc.id).get();
       const userData = userDoc.data();
-      const fcmToken = userData?.fcmToken;
+      const userTokens = deviceTokens(userData);
       const notificationsEnabled =
         userData?.notificationsEnabled !== false;
       const notifyMeetingComment =
         userData?.notifyMeetingComment !== false;
-      if (fcmToken && notificationsEnabled && notifyMeetingComment) {
-        tokens.push(fcmToken);
+      if (userTokens.length > 0 &&
+          notificationsEnabled && notifyMeetingComment) {
+        tokens.push(...userTokens);
       }
     }
 
@@ -426,13 +431,14 @@ export const onMeetingRecordCreated = onDocumentCreated(
       const userDoc = await db
         .collection("users").doc(memberDoc.id).get();
       const userData = userDoc.data();
-      const fcmToken = userData?.fcmToken;
+      const userTokens = deviceTokens(userData);
       const notificationsEnabled =
         userData?.notificationsEnabled !== false;
       const notifyMeetingRecord =
         userData?.notifyMeetingRecord !== false;
-      if (fcmToken && notificationsEnabled && notifyMeetingRecord) {
-        tokens.push(fcmToken);
+      if (userTokens.length > 0 &&
+          notificationsEnabled && notifyMeetingRecord) {
+        tokens.push(...userTokens);
       }
     }
 
@@ -508,13 +514,14 @@ export const remindMeetingDDay = onSchedule(
         const userDoc = await db
           .collection("users").doc(memberDoc.id).get();
         const userData = userDoc.data();
-        const fcmToken = userData?.fcmToken;
+        const userTokens = deviceTokens(userData);
         const notificationsEnabled =
           userData?.notificationsEnabled !== false;
         const notifyMeetingDDay =
           userData?.notifyMeetingDDay !== false;
-        if (fcmToken && notificationsEnabled && notifyMeetingDDay) {
-          tokens.push(fcmToken);
+        if (userTokens.length > 0 &&
+            notificationsEnabled && notifyMeetingDDay) {
+          tokens.push(...userTokens);
         }
       }
       if (tokens.length === 0) continue;
@@ -597,12 +604,13 @@ export const onNudgeCreated = onDocumentCreated(
     const userDoc = await db
       .collection("users").doc(targetUserId).get();
     const userData = userDoc.data();
-    const fcmToken = userData?.fcmToken;
+    const userTokens = deviceTokens(userData);
     const notificationsEnabled =
       userData?.notificationsEnabled !== false;
     const notifyNudge =
       userData?.notifyNudge !== false;
-    if (!fcmToken || !notificationsEnabled || !notifyNudge) return;
+    if (userTokens.length === 0) return;
+    if (!notificationsEnabled || !notifyNudge) return;
 
     // 모임 장소 (후보 모드면 fallback)
     let meetingContext = "이번 모임";
@@ -620,24 +628,26 @@ export const onNudgeCreated = onDocumentCreated(
       console.error("Meeting fetch failed:", e);
     }
 
-    try {
-      await getMessaging().send({
-        notification: {
-          title: `${fromName}님이 콕 찔렀어요`,
-          body: `${meetingContext} 참석 여부를 알려주세요.`,
-        },
-        data: {
-          type: "meetingAttendance",
-          meetingId,
-        },
-        token: fcmToken,
-      });
-      console.log(`Nudge: ${targetUserId} in ${familyId}/${meetingId}`);
-    } catch (error) {
-      const code = (error as {code?: string})?.code;
-      console.error(`Nudge error (${targetUserId}): code=${code}`, error);
-      if (code && STALE_TOKEN_CODES.has(code)) {
-        await cleanupInvalidTokens([fcmToken]);
+    for (const token of userTokens) {
+      try {
+        await getMessaging().send({
+          notification: {
+            title: `${fromName}님이 콕 찔렀어요`,
+            body: `${meetingContext} 참석 여부를 알려주세요.`,
+          },
+          data: {
+            type: "meetingAttendance",
+            meetingId,
+          },
+          token,
+        });
+        console.log(`Nudge: ${targetUserId} in ${familyId}/${meetingId}`);
+      } catch (error) {
+        const code = (error as {code?: string})?.code;
+        console.error(`Nudge error (${targetUserId}): code=${code}`, error);
+        if (code && STALE_TOKEN_CODES.has(code)) {
+          await cleanupInvalidTokens([token]);
+        }
       }
     }
   }
@@ -703,19 +713,34 @@ const STALE_TOKEN_CODES = new Set<string>([
 ]);
 
 /**
+ * 유저의 기기 토큰을 모두 수집 — iOS(fcmToken) + 웹(webFcmToken).
+ * 웹은 iOS와 다른 필드를 쓰므로 양쪽 모두에게 발송해야 한다.
+ * @param {object|undefined} userData users 문서 데이터
+ * @return {string[]} 유효한 토큰 배열
+ */
+function deviceTokens(
+  userData: FirebaseFirestore.DocumentData | undefined
+): string[] {
+  return [userData?.fcmToken, userData?.webFcmToken]
+    .filter((t): t is string => typeof t === "string" && t.length > 0);
+}
+
+/**
  * 주어진 토큰들을 가진 users 문서에서 fcmToken 필드를 제거.
  * @param {string[]} tokens 무효로 판정된 토큰들
  */
 async function cleanupInvalidTokens(tokens: string[]): Promise<void> {
   for (const token of tokens) {
-    const snap = await db.collection("users")
-      .where("fcmToken", "==", token).get();
-    for (const doc of snap.docs) {
-      try {
-        await doc.ref.update({fcmToken: FieldValue.delete()});
-        console.log(`Cleared stale fcmToken from user ${doc.id}`);
-      } catch (e) {
-        console.error(`Failed to clear token for ${doc.id}:`, e);
+    for (const field of ["fcmToken", "webFcmToken"]) {
+      const snap = await db.collection("users")
+        .where(field, "==", token).get();
+      for (const doc of snap.docs) {
+        try {
+          await doc.ref.update({[field]: FieldValue.delete()});
+          console.log(`Cleared stale ${field} from user ${doc.id}`);
+        } catch (e) {
+          console.error(`Failed to clear token for ${doc.id}:`, e);
+        }
       }
     }
   }
