@@ -232,18 +232,7 @@ struct CreateMeetingView: View {
                             }
                         }
 
-                    Button {
-                        Haptic.light()
-                        showPlaceSearch = true
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                            .font(.body)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(AppColors.primary)
-                            .frame(width: 52, height: 52)
-                            .background(AppColors.primarySubtle)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                    }
+                    PlaceSearchIconButton { showPlaceSearch = true }
                 }
 
                 Text("장소 링크 (선택)")

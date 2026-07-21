@@ -41,18 +41,7 @@ struct PlaceCandidatesEditor: View {
                             text: $candidates[index].title
                         )
 
-                        Button {
-                            Haptic.light()
-                            searchingIndex = index
-                        } label: {
-                            Image(systemName: "magnifyingglass")
-                                .font(.body)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(AppColors.primary)
-                                .frame(width: 44, height: 44)
-                                .background(AppColors.primarySubtle)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
+                        PlaceSearchIconButton { searchingIndex = index }
 
                         if candidates.count > minCount {
                             Button {

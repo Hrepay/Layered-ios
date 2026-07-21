@@ -85,6 +85,28 @@ extension View {
     }
 }
 
+// MARK: - 장소 검색 열기 버튼
+/// 장소 입력 필드 옆에 붙는 돋보기 버튼 — AppTextField 높이(52pt)에 맞춤.
+/// 모임 장소·후보·선택지 입력에서 공용.
+struct PlaceSearchIconButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            Haptic.light()
+            action()
+        } label: {
+            Image(systemName: "magnifyingglass")
+                .font(.body)
+                .fontWeight(.semibold)
+                .foregroundStyle(AppColors.primary)
+                .frame(width: 52, height: 52)
+                .background(AppColors.primarySubtle)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+    }
+}
+
 // MARK: - 뱃지
 struct BadgeView: View {
     let text: String
