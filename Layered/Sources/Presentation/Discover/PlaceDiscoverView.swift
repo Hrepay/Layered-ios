@@ -5,6 +5,7 @@ import SwiftUI
 struct PlaceDiscoverView: View {
     @Environment(AppState.self) private var appState: AppState
     @State private var query = ""
+    @State private var showFamilyList = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -12,13 +13,36 @@ struct PlaceDiscoverView: View {
                 Text("주변 맛집")
                     .font(.title2)
                     .fontWeight(.bold)
+
                 Spacer()
+
+                Button {
+                    Haptic.light()
+                    showFamilyList = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "heart.fill")
+                            .font(.caption)
+                            .foregroundStyle(AppColors.primary)
+                        Text("가족 리스트")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.primary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(Capsule().fill(AppColors.primarySubtle))
+                }
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
             .padding(.bottom, 4)
 
             PlaceSearchView(query: $query)
+                .environment(appState)
+        }
+        .sheet(isPresented: $showFamilyList) {
+            FamilyWishListView()
                 .environment(appState)
         }
     }

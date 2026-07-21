@@ -30,9 +30,22 @@ struct PlaceSearchView: View {
     @State private var showMap = false
     @State private var mapSelection: PlaceResult?
     @State private var cameraPosition: MapCameraPosition = .automatic
+    /// 검색 결과 대신 가족 맛집 리스트(가고 싶은 곳)를 표시하는 모드.
+    @State private var familyWishMode = false
 
     var canSearch: Bool {
         !query.trimmingCharacters(in: .whitespaces).isEmpty || (nearMe && coordinate != nil)
+    }
+
+    /// 화면에 실제 표시되는 목록 — 가족 추천 모드면 위시리스트, 아니면 검색 결과.
+    private var displayResults: [PlaceResult] {
+        familyWishMode
+            ? appState.placeWishes.filter { $0.status == .wishlist }.map { $0.toPlaceResult() }
+            : results
+    }
+
+    private func isWished(_ place: PlaceResult) -> Bool {
+        appState.placeWishes.contains { $0.placeId == place.id }
     }
 
     var body: some View {
@@ -62,6 +75,7 @@ struct PlaceSearchView: View {
                 // 카테고리 칩 + 내 주변
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
+                        familyWishChip
                         mapToggleChip
                         nearMeChip
                         restaurantsOnlyChip
@@ -78,24 +92,32 @@ struct PlaceSearchView: View {
             Divider()
 
             // 결과 영역
-            if isLoading {
+            if isLoading, !familyWishMode {
                 Spacer()
                 ProgressView()
                 Spacer()
-            } else if results.isEmpty {
+            } else if displayResults.isEmpty {
                 Spacer()
-                EmptyStateView(
-                    icon: hasSearched ? "magnifyingglass" : "fork.knife",
-                    title: hasSearched ? "검색 결과가 없어요" : "주변 맛집을 찾아보세요",
-                    description: hasSearched
-                        ? "다른 검색어나 카테고리로 시도해보세요"
-                        : "지역과 가게 이름으로 검색하거나,\n'내 주변'을 켜고 카테고리만 골라도 돼요"
-                )
+                if familyWishMode {
+                    EmptyStateView(
+                        icon: "heart",
+                        title: "아직 가족 추천이 없어요",
+                        description: "검색 결과에서 ♥︎를 누르면\n가족 모두가 보는 리스트에 담겨요"
+                    )
+                } else {
+                    EmptyStateView(
+                        icon: hasSearched ? "magnifyingglass" : "fork.knife",
+                        title: hasSearched ? "검색 결과가 없어요" : "주변 맛집을 찾아보세요",
+                        description: hasSearched
+                            ? "다른 검색어나 카테고리로 시도해보세요"
+                            : "지역과 가게 이름으로 검색하거나,\n'내 주변'을 켜고 카테고리만 골라도 돼요"
+                    )
+                }
                 Spacer()
             } else if showMap {
                 mapResults
             } else {
-                List(results) { place in
+                List(displayResults) { place in
                     resultRow(place)
                         .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 20))
                 }
@@ -138,6 +160,32 @@ struct PlaceSearchView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(Capsule().fill(nearMe ? AppColors.primary : Color(.secondarySystemBackground)))
+        }
+    }
+
+    /// 가족 맛집 리스트(가고 싶은 곳)를 결과 자리에 표시 — 모임 장소·후보 선택 시 바로 활용.
+    private var familyWishChip: some View {
+        let count = appState.placeWishes.filter { $0.status == .wishlist }.count
+        return Button {
+            Haptic.light()
+            familyWishMode.toggle()
+            if familyWishMode {
+                mapSelection = nil
+                cameraPosition = .automatic
+                Task { await appState.refreshPlaceWishes() }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "heart.fill")
+                    .font(.caption2)
+                Text(count > 0 ? "가족 추천 \(count)" : "가족 추천")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+            }
+            .foregroundStyle(familyWishMode ? .white : .primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(familyWishMode ? AppColors.primary : Color(.secondarySystemBackground)))
         }
     }
 
@@ -209,7 +257,7 @@ struct PlaceSearchView: View {
     private var mapResults: some View {
         Map(position: $cameraPosition) {
             UserAnnotation()
-            ForEach(results) { place in
+            ForEach(displayResults) { place in
                 Annotation(place.name, coordinate: place.coordinate) {
                     Button {
                         Haptic.light()
@@ -258,6 +306,10 @@ struct PlaceSearchView: View {
             }
 
             Spacer(minLength: 8)
+
+            if !familyWishMode {
+                wishButton(place, font: .title3)
+            }
 
             Button {
                 Haptic.light()
@@ -340,6 +392,10 @@ struct PlaceSearchView: View {
 
             Spacer(minLength: 0)
 
+            if !familyWishMode {
+                wishButton(place, font: .body)
+            }
+
             if onSelect != nil {
                 // 선택 모드: 상세는 ⓘ로 따로 열람
                 Button {
@@ -367,6 +423,21 @@ struct PlaceSearchView: View {
                 detailPlace = place
             }
         }
+    }
+
+    /// 가족 리스트에 추천 담기. 이미 담긴 가게는 채워진 하트로 표시(비활성).
+    private func wishButton(_ place: PlaceResult, font: Font) -> some View {
+        let wished = isWished(place)
+        return Button {
+            guard !wished else { return }
+            Haptic.medium()
+            Task { _ = try? await appState.addPlaceWish(from: place) }
+        } label: {
+            Image(systemName: wished ? "heart.fill" : "heart")
+                .font(font)
+                .foregroundStyle(AppColors.primary)
+        }
+        .buttonStyle(.borderless)
     }
 
     // MARK: - 동작

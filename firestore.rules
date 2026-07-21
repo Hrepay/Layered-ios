@@ -153,6 +153,19 @@ service cloud.firestore {
         }
       }
 
+      // 가족 맛집 리스트: 추천 장소 풀. 추천자는 본인이어야 하고,
+      // 상태 전환(다녀옴)은 가족 누구나, 삭제는 추천자 본인 또는 관리자.
+      match /placeWishes/{wishId} {
+        allow read: if isMemberOf(familyId);
+        allow create: if isMemberOf(familyId)
+          && request.resource.data.recommenderId == request.auth.uid;
+        allow update: if isMemberOf(familyId)
+          // 추천자 정보는 변경 불가
+          && request.resource.data.recommenderId == resource.data.recommenderId;
+        allow delete: if isMemberOf(familyId)
+          && (resource.data.recommenderId == request.auth.uid || isAdminOf(familyId));
+      }
+
       // 한 겹(노트): 모임과 독립된 가벼운 메모. 작성자 본인만 수정, 삭제는 본인 또는 관리자.
       match /notes/{noteId} {
         allow read: if isMemberOf(familyId);

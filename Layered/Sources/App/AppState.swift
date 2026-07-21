@@ -37,6 +37,8 @@ final class AppState {
     var meetings: [Meeting] = []
     /// 모임과 별개로 남긴 가벼운 메모("한 겹"). date desc 정렬로 유지.
     var notes: [Note] = []
+    /// 가족 맛집 리스트 (추천 장소 풀). createdAt desc.
+    var placeWishes: [PlaceWish] = []
     var myRecordedMeetingIds: Set<String> = []
     var averageRating: Double = 0
     var consecutiveWeeks: Int = 0
@@ -56,6 +58,7 @@ final class AppState {
     @ObservationIgnored private var _noteRepository: NoteRepositoryProtocol?
     @ObservationIgnored private var _storageRepository: StorageRepositoryProtocol?
     @ObservationIgnored private var _placeSearchRepository: PlaceSearchRepositoryProtocol?
+    @ObservationIgnored private var _placeWishRepository: PlaceWishRepositoryProtocol?
 
     private var authRepository: AuthRepositoryProtocol {
         if _authRepository == nil {
@@ -116,6 +119,12 @@ final class AppState {
             _placeSearchRepository = KakaoPlaceSearchRepository()
         }
         return _placeSearchRepository!
+    }
+    var placeWishRepository: PlaceWishRepositoryProtocol {
+        if _placeWishRepository == nil {
+            _placeWishRepository = shouldUseMock ? MockPlaceWishRepository() : FirebasePlaceWishRepository()
+        }
+        return _placeWishRepository!
     }
 
     private var hasSeenOnboarding: Bool {
@@ -303,6 +312,8 @@ final class AppState {
             notes = (try? await noteRepository.getNotes(familyId: familyId)) ?? []
             await refreshMembers()
             await checkMyRecords()
+            await refreshPlaceWishes()
+            await syncVisitedWishes()
         } catch {
             self.error = AppError.from(error)
         }
@@ -669,6 +680,74 @@ final class AppState {
         defer { isLoading = false }
         try await noteRepository.deleteNote(familyId: familyId, noteId: noteId)
         await refreshNotes()
+    }
+
+    // MARK: - 가족 맛집 리스트 (추천 장소)
+
+    @MainActor
+    func refreshPlaceWishes() async {
+        guard let familyId = currentFamily?.id else { return }
+        if let loaded = try? await placeWishRepository.getWishes(familyId: familyId) {
+            placeWishes = loaded
+        }
+    }
+
+    /// 장소 검색 결과를 가족 리스트에 추천으로 추가. 이미 있는 가게면 false.
+    @MainActor
+    func addPlaceWish(from place: PlaceResult) async throws -> Bool {
+        guard let familyId = currentFamily?.id,
+              let user = currentUser else { throw AppStateError.noFamily }
+        guard !placeWishes.contains(where: { $0.placeId == place.id }) else { return false }
+
+        let wish = PlaceWish(
+            id: UUID().uuidString,
+            placeId: place.id,
+            name: place.name,
+            // 검색 행 표시용으로 합성한 카테고리가 아닌 원본만 저장
+            category: place.category.components(separatedBy: " · ").first ?? place.category,
+            address: place.address,
+            latitude: place.latitude,
+            longitude: place.longitude,
+            detailURL: place.detailURL,
+            phone: place.phone,
+            recommenderId: user.id,
+            recommenderName: user.name,
+            status: .wishlist,
+            createdAt: Date(),
+            visitedAt: nil
+        )
+        try await placeWishRepository.addWish(familyId: familyId, wish: wish)
+        placeWishes.insert(wish, at: 0)
+        return true
+    }
+
+    @MainActor
+    func setPlaceWishStatus(_ wishId: String, status: PlaceWish.Status) async throws {
+        guard let familyId = currentFamily?.id else { throw AppStateError.noFamily }
+        try await placeWishRepository.updateStatus(familyId: familyId, wishId: wishId, status: status)
+        if let index = placeWishes.firstIndex(where: { $0.id == wishId }) {
+            placeWishes[index].status = status
+            placeWishes[index].visitedAt = status == .visited ? Date() : nil
+        }
+    }
+
+    @MainActor
+    func deletePlaceWish(_ wishId: String) async throws {
+        guard let familyId = currentFamily?.id else { throw AppStateError.noFamily }
+        try await placeWishRepository.deleteWish(familyId: familyId, wishId: wishId)
+        placeWishes.removeAll { $0.id == wishId }
+    }
+
+    /// 완료된 모임의 장소와 이름이 같은 "가고 싶은 곳"을 자동으로 "다녀온 곳"으로 전환.
+    /// loadHomeData에서 모임 로드 후 호출 — 실패는 조용히 무시 (다음 로드에서 재시도).
+    @MainActor
+    private func syncVisitedWishes() async {
+        let completedPlaces = Set(
+            meetings.filter { $0.status == .completed }.map(\.place)
+        )
+        for wish in placeWishes where wish.status == .wishlist && completedPlaces.contains(wish.name) {
+            try? await setPlaceWishStatus(wish.id, status: .visited)
+        }
     }
 
     // MARK: - 구성원 관리

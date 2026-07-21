@@ -211,6 +211,33 @@ test('모임 수정자 표기 본인 → 허용', async () => {
   }));
 });
 
+// ───────────────────────── 가족 맛집 리스트 (placeWishes)
+
+test('맛집 추천: 멤버가 본인 recommenderId로 생성 → 허용', async () => {
+  await assertSucceeds(setDoc(doc(db('bob'), 'families/F1/placeWishes/w1'), {
+    placeId: 'k1', name: '서관면옥', category: '냉면', address: '서초구',
+    latitude: 37.5, longitude: 127.0, recommenderId: 'bob', recommenderName: '밥',
+    status: 'wishlist', createdAt: FUTURE,
+  }));
+});
+
+test('맛집 추천: 추천자 위조(recommenderId 타인) → 거부', async () => {
+  await assertFails(setDoc(doc(db('bob'), 'families/F1/placeWishes/w2'), {
+    placeId: 'k2', name: '위조', category: '한식', address: '서초구',
+    latitude: 37.5, longitude: 127.0, recommenderId: 'alice', recommenderName: '앨리스',
+    status: 'wishlist', createdAt: FUTURE,
+  }));
+});
+
+test('맛집 추천: 비멤버 읽기/생성 → 거부', async () => {
+  await assertFails(getDocs(collection(db('carol'), 'families/F1/placeWishes')));
+  await assertFails(setDoc(doc(db('carol'), 'families/F1/placeWishes/w3'), {
+    placeId: 'k3', name: '외부인', category: '한식', address: '서초구',
+    latitude: 37.5, longitude: 127.0, recommenderId: 'carol', recommenderName: '캐롤',
+    status: 'wishlist', createdAt: FUTURE,
+  }));
+});
+
 // ───────────────────────── Storage (가족 사진 경로 멤버십)
 
 test('Storage: 비멤버(carol)의 노트 사진 업로드 → 거부', async () => {
