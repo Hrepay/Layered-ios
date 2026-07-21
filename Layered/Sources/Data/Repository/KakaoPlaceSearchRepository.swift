@@ -143,6 +143,36 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
 
     // MARK: - 요청 빌드
 
+    /// '전체'는 음식점(FD6)+카페(CE7) 두 그룹 병합 — 은행·주차장 등 비음식 업소 제외.
+    /// (API가 category_group_code를 하나만 받으므로 그룹별로 요청 후 합침)
+    private func groupCodes(for category: PlaceSearchCategory) -> [String] {
+        switch category {
+        case .cafe: return ["CE7"]
+        case .all: return ["FD6", "CE7"]
+        default: return ["FD6"]
+        }
+    }
+
+    /// 여러 페이지 수집 (최대 3 × 15 = 45곳)
+    private func collectPages(path: String, baseItems: [URLQueryItem]) async throws -> [PlaceResult] {
+        var collected: [PlaceResult] = []
+        for page in 1...3 {
+            let items = baseItems + [
+                URLQueryItem(name: "size", value: "15"),
+                URLQueryItem(name: "page", value: String(page)),
+            ]
+            let response = try await requestPage(path: path, queryItems: items)
+            collected += response.documents.map { $0.toPlaceResult() }
+            if response.meta.isEnd { break }
+        }
+        return collected
+    }
+
+    private func dedupe(_ results: [PlaceResult]) -> [PlaceResult] {
+        var seen = Set<String>()
+        return results.filter { seen.insert($0.id).inserted }
+    }
+
     private func keywordSearch(
         query: String,
         category: PlaceSearchCategory,
@@ -170,26 +200,32 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
         let effectiveQuery = parts.joined(separator: " ")
         guard !effectiveQuery.isEmpty else { return [] }
 
-        var items = [
-            URLQueryItem(name: "query", value: effectiveQuery),
-            URLQueryItem(name: "size", value: "15"),
-        ]
-        // 카페 칩은 카테고리 그룹으로 정확히 제한, 나머지는 음식점 그룹으로 제한
-        switch category {
-        case .cafe: items.append(URLQueryItem(name: "category_group_code", value: "CE7"))
-        case .all: break
-        default: items.append(URLQueryItem(name: "category_group_code", value: "FD6"))
-        }
+        var baseItems = [URLQueryItem(name: "query", value: effectiveQuery)]
+        let sortByDistance: Bool
         if let latitude, let longitude {
             // 맛집만: 인기도(정확도) 정렬 — "가까운 순"이 아니라 "반경 내에서 유명한 순"
-            items.append(contentsOf: [
+            baseItems.append(contentsOf: [
                 URLQueryItem(name: "x", value: String(longitude)),
                 URLQueryItem(name: "y", value: String(latitude)),
                 URLQueryItem(name: "radius", value: String(radius)),
                 URLQueryItem(name: "sort", value: restaurantsOnly ? "accuracy" : "distance"),
             ])
+            sortByDistance = !restaurantsOnly
+        } else {
+            sortByDistance = false
         }
-        return try await request(path: "keyword", queryItems: items)
+
+        var merged: [PlaceResult] = []
+        for code in groupCodes(for: category) {
+            let items = baseItems + [URLQueryItem(name: "category_group_code", value: code)]
+            merged += try await collectPages(path: "keyword", baseItems: items)
+        }
+        var results = dedupe(merged)
+        // 그룹 병합으로 순서가 섞였을 수 있어 거리 모드는 거리순 재정렬
+        if sortByDistance {
+            results.sort { ($0.distanceMeters ?? .max) < ($1.distanceMeters ?? .max) }
+        }
+        return results
     }
 
     private func categorySearch(
@@ -198,16 +234,19 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
         latitude: Double,
         longitude: Double
     ) async throws -> [PlaceResult] {
-        let groupCode = (category == .cafe) ? "CE7" : "FD6"
-        let items = [
-            URLQueryItem(name: "category_group_code", value: groupCode),
+        let baseItems = [
             URLQueryItem(name: "x", value: String(longitude)),
             URLQueryItem(name: "y", value: String(latitude)),
             URLQueryItem(name: "radius", value: String(radius)),
             URLQueryItem(name: "sort", value: "distance"),
-            URLQueryItem(name: "size", value: "15"),
         ]
-        let results = try await request(path: "category", queryItems: items)
+        var merged: [PlaceResult] = []
+        for code in groupCodes(for: category) {
+            let items = baseItems + [URLQueryItem(name: "category_group_code", value: code)]
+            merged += try await collectPages(path: "category", baseItems: items)
+        }
+        var results = dedupe(merged)
+        results.sort { ($0.distanceMeters ?? .max) < ($1.distanceMeters ?? .max) }
         // 세부 업종 칩이면 카테고리명으로 클라이언트 필터 (카테고리 API는 그룹 단위까지만 지원)
         guard category != .all, category != .cafe else { return results }
         return results.filter { $0.category.contains(category.rawValue) }
