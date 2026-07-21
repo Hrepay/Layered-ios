@@ -173,6 +173,41 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
         return results.filter { seen.insert($0.id).inserted }
     }
 
+    /// 그룹별(FD6/CE7) 수집을 병렬 실행 — '전체' 칩의 직렬 6회 왕복 지연 방지.
+    private func fetchGroups(
+        path: String,
+        baseItems: [URLQueryItem],
+        category: PlaceSearchCategory
+    ) async throws -> [[PlaceResult]] {
+        let codes = groupCodes(for: category)
+        return try await withThrowingTaskGroup(of: (Int, [PlaceResult]).self) { group in
+            for (index, code) in codes.enumerated() {
+                let items = baseItems + [URLQueryItem(name: "category_group_code", value: code)]
+                group.addTask {
+                    (index, try await self.collectPages(path: path, baseItems: items))
+                }
+            }
+            var batches = [[PlaceResult]](repeating: [], count: codes.count)
+            for try await (index, results) in group {
+                batches[index] = results
+            }
+            return batches
+        }
+    }
+
+    /// 두 그룹 결과를 번갈아 섞기 — 정확도 모드에서 카페가 전부 뒤로 몰리지 않게.
+    private func interleave(_ batches: [[PlaceResult]]) -> [PlaceResult] {
+        guard batches.count > 1 else { return batches.first ?? [] }
+        var merged: [PlaceResult] = []
+        let maxCount = batches.map(\.count).max() ?? 0
+        for i in 0..<maxCount {
+            for batch in batches where i < batch.count {
+                merged.append(batch[i])
+            }
+        }
+        return merged
+    }
+
     private func keywordSearch(
         query: String,
         category: PlaceSearchCategory,
@@ -215,12 +250,8 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
             sortByDistance = false
         }
 
-        var merged: [PlaceResult] = []
-        for code in groupCodes(for: category) {
-            let items = baseItems + [URLQueryItem(name: "category_group_code", value: code)]
-            merged += try await collectPages(path: "keyword", baseItems: items)
-        }
-        var results = dedupe(merged)
+        let batches = try await fetchGroups(path: "keyword", baseItems: baseItems, category: category)
+        var results = dedupe(interleave(batches))
         // 그룹 병합으로 순서가 섞였을 수 있어 거리 모드는 거리순 재정렬
         if sortByDistance {
             results.sort { ($0.distanceMeters ?? .max) < ($1.distanceMeters ?? .max) }
@@ -240,20 +271,12 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
             URLQueryItem(name: "radius", value: String(radius)),
             URLQueryItem(name: "sort", value: "distance"),
         ]
-        var merged: [PlaceResult] = []
-        for code in groupCodes(for: category) {
-            let items = baseItems + [URLQueryItem(name: "category_group_code", value: code)]
-            merged += try await collectPages(path: "category", baseItems: items)
-        }
-        var results = dedupe(merged)
+        let batches = try await fetchGroups(path: "category", baseItems: baseItems, category: category)
+        var results = dedupe(batches.flatMap { $0 })
         results.sort { ($0.distanceMeters ?? .max) < ($1.distanceMeters ?? .max) }
         // 세부 업종 칩이면 카테고리명으로 클라이언트 필터 (카테고리 API는 그룹 단위까지만 지원)
         guard category != .all, category != .cafe else { return results }
         return results.filter { $0.category.contains(category.rawValue) }
-    }
-
-    private func request(path: String, queryItems: [URLQueryItem]) async throws -> [PlaceResult] {
-        try await requestPage(path: path, queryItems: queryItems).documents.map { $0.toPlaceResult() }
     }
 
     private func requestPage(path: String, queryItems: [URLQueryItem]) async throws -> KakaoLocalResponse {

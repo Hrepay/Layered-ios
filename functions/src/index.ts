@@ -721,8 +721,10 @@ const STALE_TOKEN_CODES = new Set<string>([
 function deviceTokens(
   userData: FirebaseFirestore.DocumentData | undefined
 ): string[] {
-  return [userData?.fcmToken, userData?.webFcmToken]
+  const tokens = [userData?.fcmToken, userData?.webFcmToken]
     .filter((t): t is string => typeof t === "string" && t.length > 0);
+  // 같은 토큰이 두 필드에 들어간 극단 케이스의 중복 발송 방지
+  return Array.from(new Set(tokens));
 }
 
 /**
