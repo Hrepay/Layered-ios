@@ -71,6 +71,12 @@ Tuist/.build
 
 ### Firebase ###
 **/GoogleService-Info.plist
+firestore-debug.log
+firebase-debug.log
+ui-debug.log
+
+### 로컬 시크릿 (Secrets.swift.example 참고) ###
+Layered/Sources/Util/Secrets.swift
 # Claude Code
 .agents/
 skills-lock.json

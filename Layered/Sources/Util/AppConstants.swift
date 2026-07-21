@@ -10,9 +10,9 @@ enum AppConstants {
     }
 
     enum Kakao {
-        /// 카카오 로컬(장소 검색) REST API 키. 검색 전용 무료 키 — 노출 시에도 실질 리스크 낮음.
+        /// 카카오 로컬(장소 검색) REST API 키 — 실제 값은 gitignore된 Secrets.swift에서 관리.
         /// 트래픽이 커지면 Cloud Functions 프록시로 이전 검토.
-        static let restAPIKey = "KAKAO_REST_API_KEY_REMOVED"
+        static let restAPIKey = Secrets.kakaoRESTAPIKey
     }
 
     enum Legal {
