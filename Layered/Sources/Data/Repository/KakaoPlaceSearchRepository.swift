@@ -7,16 +7,18 @@ import Foundation
 final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
     private let session = URLSession.shared
 
+    /// 검색 반경 상한(m) — API 최대치. 동네명 검색 결과가 실측상 대부분 2km 이내라 UI 조절은 없음.
+    private static let maxRadiusMeters = 20_000
+
     func searchPlaces(
         query: String,
         category: PlaceSearchCategory,
         restaurantsOnly: Bool,
-        radiusMeters: Int,
         latitude: Double?,
         longitude: Double?
     ) async throws -> [PlaceResult] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let radius = min(max(radiusMeters, 100), 20000)
+        let radius = Self.maxRadiusMeters
 
         // "맛집만" + 좌표: 동네명 기반 인기 검색 (아래 popularSearch 주석 참고)
         if restaurantsOnly, let latitude, let longitude {

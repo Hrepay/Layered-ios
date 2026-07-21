@@ -738,15 +738,27 @@ final class AppState {
         placeWishes.removeAll { $0.id == wishId }
     }
 
-    /// 완료된 모임의 장소와 이름이 같은 "가고 싶은 곳"을 자동으로 "다녀온 곳"으로 전환.
+    /// 완료된 모임에 사용된 "가고 싶은 곳"을 자동으로 "다녀온 곳"으로 전환.
     /// loadHomeData에서 모임 로드 후 호출 — 실패는 조용히 무시 (다음 로드에서 재시도).
+    /// 매칭: 이름 일치 + (모임에 좌표가 있으면) 좌표 근접까지 요구 — 동명 다른 지점 오탐 방지.
     @MainActor
     private func syncVisitedWishes() async {
-        let completedPlaces = Set(
-            meetings.filter { $0.status == .completed }.map(\.place)
-        )
-        for wish in placeWishes where wish.status == .wishlist && completedPlaces.contains(wish.name) {
-            try? await setPlaceWishStatus(wish.id, status: .visited)
+        let completed = meetings.filter { $0.status == .completed && !$0.place.isEmpty }
+        guard !completed.isEmpty else { return }
+
+        for wish in placeWishes where wish.status == .wishlist {
+            let matched = completed.contains { meeting in
+                guard meeting.place == wish.name else { return false }
+                guard let lat = meeting.placeLatitude, let lng = meeting.placeLongitude else {
+                    // 좌표 없는 수동 입력 모임은 이름 일치만으로 판단
+                    return true
+                }
+                // 약 100m 이내면 같은 지점으로 간주
+                return abs(lat - wish.latitude) < 0.001 && abs(lng - wish.longitude) < 0.001
+            }
+            if matched {
+                try? await setPlaceWishStatus(wish.id, status: .visited)
+            }
         }
     }
 

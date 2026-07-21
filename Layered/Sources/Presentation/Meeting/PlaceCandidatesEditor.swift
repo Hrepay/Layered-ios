@@ -26,6 +26,8 @@ struct PlaceCandidatesEditor: View {
     var minCount: Int = 2
     var maxCount: Int = 4
 
+    @Environment(AppState.self) private var appState: AppState
+
     /// 장소 검색 시트가 채울 후보 인덱스. nil이면 시트 닫힘.
     @State private var searchingIndex: Int?
 
@@ -126,6 +128,7 @@ struct PlaceCandidatesEditor: View {
                     candidates[index].link = url
                 }
             }
+            .environment(appState)
         }
     }
 

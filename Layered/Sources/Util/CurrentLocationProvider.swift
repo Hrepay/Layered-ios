@@ -16,11 +16,14 @@ final class CurrentLocationProvider: NSObject, CLLocationManagerDelegate {
     }
 
     /// 권한 확인/요청 후 현재 좌표를 1회 반환. 실패·거부 시 nil.
+    /// 재진입(연타) 시 진행 중이던 요청은 nil로 종료시키고 새 요청으로 교체 —
+    /// continuation이 덮어써져 이전 await가 영구 대기하는 것 방지.
     func requestCurrentLocation() async -> CLLocationCoordinate2D? {
         let status = manager.authorizationStatus
         switch status {
         case .notDetermined:
             let granted = await withCheckedContinuation { continuation in
+                authContinuation?.resume(returning: false)
                 authContinuation = continuation
                 manager.requestWhenInUseAuthorization()
             }
@@ -31,6 +34,7 @@ final class CurrentLocationProvider: NSObject, CLLocationManagerDelegate {
             break
         }
         return await withCheckedContinuation { continuation in
+            locationContinuation?.resume(returning: nil)
             locationContinuation = continuation
             manager.requestLocation()
         }

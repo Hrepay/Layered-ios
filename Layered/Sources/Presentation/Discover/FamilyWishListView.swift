@@ -27,7 +27,7 @@ struct FamilyWishListView: View {
             if appState.placeWishes.isEmpty {
                 Spacer()
                 EmptyStateView(
-                    icon: "heart",
+                    icon: "heart.fill",
                     title: "아직 추천한 곳이 없어요",
                     description: "주변 맛집을 검색하고 ♥︎를 누르면\n가족 모두가 보는 이 리스트에 담겨요"
                 )

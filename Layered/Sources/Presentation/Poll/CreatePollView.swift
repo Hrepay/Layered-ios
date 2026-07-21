@@ -4,6 +4,8 @@ struct CreatePollView: View {
     let onBack: () -> Void
     let onCreated: (Poll) -> Void
 
+    @Environment(AppState.self) private var appState: AppState
+
     struct OptionDraft: Identifiable {
         let id = UUID()
         var title: String = ""
@@ -195,6 +197,7 @@ struct CreatePollView: View {
                     options[index].link = url
                 }
             }
+            .environment(appState)
         }
     }
 
