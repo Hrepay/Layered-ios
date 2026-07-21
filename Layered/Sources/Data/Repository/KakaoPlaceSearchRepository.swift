@@ -11,10 +11,12 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
         query: String,
         category: PlaceSearchCategory,
         restaurantsOnly: Bool,
+        radiusMeters: Int,
         latitude: Double?,
         longitude: Double?
     ) async throws -> [PlaceResult] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let radius = min(max(radiusMeters, 100), 20000)
 
         if trimmed.isEmpty {
             guard let latitude, let longitude else { return [] }
@@ -22,15 +24,17 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
             if restaurantsOnly {
                 return try await keywordSearch(
                     query: "", category: category, restaurantsOnly: true,
-                    latitude: latitude, longitude: longitude
+                    radius: radius, latitude: latitude, longitude: longitude
                 )
             }
             // 그 외엔 카테고리 탐색 (음식점/카페 그룹 전체, 거리순)
-            return try await categorySearch(category: category, latitude: latitude, longitude: longitude)
+            return try await categorySearch(
+                category: category, radius: radius, latitude: latitude, longitude: longitude
+            )
         }
         return try await keywordSearch(
             query: trimmed, category: category, restaurantsOnly: restaurantsOnly,
-            latitude: latitude, longitude: longitude
+            radius: radius, latitude: latitude, longitude: longitude
         )
     }
 
@@ -40,6 +44,7 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
         query: String,
         category: PlaceSearchCategory,
         restaurantsOnly: Bool,
+        radius: Int,
         latitude: Double?,
         longitude: Double?
     ) async throws -> [PlaceResult] {
@@ -73,11 +78,11 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
         default: items.append(URLQueryItem(name: "category_group_code", value: "FD6"))
         }
         if let latitude, let longitude {
-            // 맛집만: 반경을 좁히고 인기도(정확도) 정렬 — "가까운 순"이 아니라 "주변에서 유명한 순"
+            // 맛집만: 인기도(정확도) 정렬 — "가까운 순"이 아니라 "반경 내에서 유명한 순"
             items.append(contentsOf: [
                 URLQueryItem(name: "x", value: String(longitude)),
                 URLQueryItem(name: "y", value: String(latitude)),
-                URLQueryItem(name: "radius", value: restaurantsOnly ? "5000" : "20000"),
+                URLQueryItem(name: "radius", value: String(radius)),
                 URLQueryItem(name: "sort", value: restaurantsOnly ? "accuracy" : "distance"),
             ])
         }
@@ -86,6 +91,7 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
 
     private func categorySearch(
         category: PlaceSearchCategory,
+        radius: Int,
         latitude: Double,
         longitude: Double
     ) async throws -> [PlaceResult] {
@@ -94,7 +100,7 @@ final class KakaoPlaceSearchRepository: PlaceSearchRepositoryProtocol {
             URLQueryItem(name: "category_group_code", value: groupCode),
             URLQueryItem(name: "x", value: String(longitude)),
             URLQueryItem(name: "y", value: String(latitude)),
-            URLQueryItem(name: "radius", value: "2000"),
+            URLQueryItem(name: "radius", value: String(radius)),
             URLQueryItem(name: "sort", value: "distance"),
             URLQueryItem(name: "size", value: "15"),
         ]

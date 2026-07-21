@@ -18,6 +18,8 @@ struct PlaceSearchView: View {
     @State private var category: PlaceSearchCategory = .all
     @State private var restaurantsOnly = false
     @State private var nearMe = false
+    /// "내 주변" 검색 반경(km). 내 주변이 켜졌을 때만 노출.
+    @State private var radiusKm = 3
     @State private var coordinate: CLLocationCoordinate2D?
     @State private var results: [PlaceResult] = []
     @State private var isLoading = false
@@ -58,6 +60,9 @@ struct PlaceSearchView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         nearMeChip
+                        if nearMe {
+                            radiusChip
+                        }
                         restaurantsOnlyChip
                         ForEach(PlaceSearchCategory.allCases) { item in
                             categoryChip(item)
@@ -133,6 +138,39 @@ struct PlaceSearchView: View {
         }
     }
 
+    /// 내 주변 검색 반경 선택. 멀리 있는 유명 맛집까지 볼지, 걸어갈 거리만 볼지 조절.
+    private var radiusChip: some View {
+        Menu {
+            ForEach([1, 3, 5, 10], id: \.self) { km in
+                Button {
+                    Haptic.light()
+                    radiusKm = km
+                    if canSearch {
+                        Task { await search() }
+                    }
+                } label: {
+                    if km == radiusKm {
+                        Label("\(km)km", systemImage: "checkmark")
+                    } else {
+                        Text("\(km)km")
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text("\(radiusKm)km")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                Image(systemName: "chevron.down")
+                    .font(.caption2)
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(Color(.secondarySystemBackground)))
+        }
+    }
+
     /// "맛집만 보기": 인기·언급량이 반영되는 '맛집' 키워드 + 정확도 정렬로 전환.
     /// 내 주변과 함께 켜면 "가까운 순" 대신 "주변에서 유명한 순"으로 나온다.
     private var restaurantsOnlyChip: some View {
@@ -201,10 +239,17 @@ struct PlaceSearchView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                if let distance = place.distanceText {
-                    Text(distance)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    if let distance = place.distanceText {
+                        Text(distance)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let phone = place.phone {
+                        Text(phone)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -268,6 +313,7 @@ struct PlaceSearchView: View {
                 query: query,
                 category: category,
                 restaurantsOnly: restaurantsOnly,
+                radiusMeters: radiusKm * 1000,
                 latitude: nearMe ? coordinate?.latitude : nil,
                 longitude: nearMe ? coordinate?.longitude : nil
             )
